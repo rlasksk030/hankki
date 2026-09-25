@@ -149,33 +149,119 @@ test("다른 달 사진을 넣으면 한 장 추가에서도 안내한다", asyn
   await expect(page.getByRole("button", { name: "다시 선택" })).toBeVisible();
 });
 
-test("등록된 근무표: 가까운 달만 보이고, 오래된 달은 '지난 근무표 보기'에서 연도별·최신순 (데이터는 보관)", async ({ page }) => {
-  await startWithTwo(page);
-  await page.getByRole("button", { name: "설정" }).click();
-  // 9.25 기준: 9·10월 + 11월 추가, 지난 근무표 없음
-  await expect(page.getByRole("button", { name: "2026년 9월 근무표 등록됨, 다시 등록" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "2026년 11월 근무표 추가" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /지난 근무표 보기/ })).toHaveCount(0);
+/** 맞지 않는 사진 → 안내 화면의 [직접 입력하기]로 한 달을 추가 (1·2월 테스트용 사진이 없어서) */
+async function addMonthManually(page: Page, year: number, month: number, wrongPhoto: string) {
+  await page.getByRole("button", { name: `${month}월 근무표 추가` }).click();
+  await page.getByLabel(`근무표 사진 선택: ${year}년 ${month}월`).setInputFiles(fixture(wrongPhoto));
+  await page.getByRole("button", { name: "근무표 분석하기" }).click();
+  // 달이 다르거나(5주), 달력이 잘렸다는(6주짜리 1월) 안내 화면 → [직접 입력하기]
+  await expect(page.getByRole("alert")).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "직접 입력하기" }).click();
+  await expect(page.getByRole("heading", { name: `${month}월 근무표 확인` })).toBeVisible();
+  await page.getByRole("button", { name: "저장" }).click();
+}
 
-  // 시간이 흘러 2027년 1월 10일 → 9·10월은 자동으로 지난 근무표로 이동
-  await page.clock.setFixedTime(new Date("2027-01-10T10:00:00+09:00"));
-  await page.reload();
+const windowRows = (page: Page) => page.getByTestId("month-window").getByRole("listitem");
+const windowNames = async (page: Page) =>
+  (await page.getByTestId("month-window").getByRole("button").all()).map((b) => b.getAttribute("aria-label"));
+
+test("등록된 근무표 기본 목록은 등록 개수와 관계없이 항상 4행, 전체 근무표 보기에서 모두 확인, 날짜가 지나면 자동 이동", async ({
+  page,
+}) => {
+  await startWithTwo(page);
+  // 9월 정산에 수령 1회 (숨겨진 뒤에도 유지되는지 확인용)
+  await page.getByRole("button", { name: "오늘 간편식 받았어요" }).click();
+
+  // 11·12월 사진 추가 → 9~12월 모두 등록
+  await page.getByRole("button", { name: "다음 정산 10.21 — 11.20" }).click();
+  await addMonth(page, 11, "synthetic-2026-11.png", "10.21 — 11.20 · 간편식 8회");
+  await page.getByRole("button", { name: "다음 정산 11.21 — 12.20" }).click();
+  await addMonth(page, 12, "synthetic-2026-12.png", "11.21 — 12.20 · 간편식 6회");
+
+  // 1. 9~12월 등록 → 4행
   await page.getByRole("button", { name: "설정" }).click();
-  await expect(page.getByRole("button", { name: "2026년 9월 근무표 등록됨, 다시 등록" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "2026년 11월 근무표 추가" })).toBeVisible();
-  const toggle = page.getByRole("button", { name: "지난 근무표 보기 (2개월)" });
+  await expect(windowRows(page)).toHaveCount(4);
+  expect(await Promise.all(await windowNames(page))).toEqual([
+    "2026년 9월 근무표 등록됨, 다시 등록",
+    "2026년 10월 근무표 등록됨, 다시 등록",
+    "2026년 11월 근무표 등록됨, 다시 등록",
+    "2026년 12월 근무표 등록됨, 다시 등록",
+  ]);
+
+  // 2. 1월 추가 → 여전히 4행
+  // (메인 화면은 마지막으로 보던 11.21~12.20 정산을 기억한다)
+  await page.getByRole("button", { name: "이번 정산" }).click();
+  await expect(page.getByTestId("period")).toHaveText("11.21 — 12.20");
+  await page.getByRole("button", { name: "다음 정산 12.21 — 1.20" }).click();
+  await addMonthManually(page, 2027, 1, "synthetic-2026-11.png");
+  await page.getByRole("button", { name: "설정" }).click();
+  await expect(windowRows(page)).toHaveCount(4);
+  await expect(page.getByRole("button", { name: "2027년 1월 근무표 등록됨, 다시 등록" })).toHaveCount(0);
+
+  // 3. 2월 추가 → 여전히 4행
+  await page.getByRole("button", { name: "이번 정산" }).click();
+  await page.getByRole("button", { name: "다음 정산 1.21 — 2.20" }).click();
+  await addMonthManually(page, 2027, 2, "deid-2026-10.png");
+  await page.getByRole("button", { name: "설정" }).click();
+  await expect(windowRows(page)).toHaveCount(4);
+
+  // 4. 전체 근무표 보기: 연도별(최신 연도 먼저), 9월~2월 모두 존재
+  const toggle = page.getByRole("button", { name: "전체 근무표 보기 (6개월)" });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
-  const year = page.getByRole("region", { name: "2026년 지난 근무표" });
-  await expect(year.getByRole("heading", { name: "2026년" })).toBeVisible();
-  const rows = year.getByRole("button");
-  await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0)).toHaveAccessibleName("2026년 10월 근무표 등록됨, 다시 등록");
-  await expect(rows.nth(1)).toHaveAccessibleName("2026년 9월 근무표 등록됨, 다시 등록");
-  await page.getByRole("button", { name: "지난 근무표 접기" }).click();
-  await expect(year).toHaveCount(0);
+  const y2027 = page.getByRole("region", { name: "2027년 근무표" });
+  const y2026 = page.getByRole("region", { name: "2026년 근무표" });
+  await expect(y2027.getByRole("button")).toHaveCount(2);
+  await expect(y2027.getByRole("button").nth(0)).toHaveAccessibleName("2027년 2월 근무표 등록됨, 다시 등록");
+  await expect(y2027.getByRole("button").nth(1)).toHaveAccessibleName("2027년 1월 근무표 등록됨, 다시 등록");
+  await expect(y2026.getByRole("button")).toHaveCount(4);
+  await expect(y2026.getByRole("button").nth(0)).toHaveAccessibleName("2026년 12월 근무표 등록됨, 다시 등록");
+  await expect(y2026.getByRole("button").nth(3)).toHaveAccessibleName("2026년 9월 근무표 등록됨, 다시 등록");
+  // 전체 근무표에서도 다음 달 추가 가능
+  await expect(page.getByRole("button", { name: "2027년 3월 근무표 추가" })).toBeVisible();
+  await expect(windowRows(page)).toHaveCount(4);
+  await page.getByRole("button", { name: "전체 근무표 접기" }).click();
 
-  // 지난 정산 기록도 그대로
+  // 5. 날짜가 다음 정산기간으로 이동하면 4개월 창도 자동 이동
+  await page.clock.setFixedTime(new Date("2026-10-25T10:00:00+09:00"));
+  await page.reload();
+  await page.getByRole("button", { name: "설정" }).click();
+  await expect(windowRows(page)).toHaveCount(4);
+  expect(await Promise.all(await windowNames(page))).toEqual([
+    "2026년 10월 근무표 등록됨, 다시 등록",
+    "2026년 11월 근무표 등록됨, 다시 등록",
+    "2026년 12월 근무표 등록됨, 다시 등록",
+    "2027년 1월 근무표 등록됨, 다시 등록",
+  ]);
+  await page.clock.setFixedTime(new Date("2026-11-25T10:00:00+09:00"));
+  await page.reload();
+  await page.getByRole("button", { name: "설정" }).click();
+  expect(await Promise.all(await windowNames(page))).toEqual([
+    "2026년 11월 근무표 등록됨, 다시 등록",
+    "2026년 12월 근무표 등록됨, 다시 등록",
+    "2027년 1월 근무표 등록됨, 다시 등록",
+    "2027년 2월 근무표 등록됨, 다시 등록",
+  ]);
+
+  // 6. 숨겨진 9·10월 데이터와 정산 기록은 그대로
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("hankki:v1:settlements") ?? "{}"));
+  expect(stored.months.map((m: { id: string }) => m.id)).toEqual(["2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02"]);
+  expect(stored.settlements.find((r: { id: string }) => r.id === "2026-09").mealUses).toHaveLength(1);
   await page.getByRole("button", { name: "기록", exact: true }).click();
-  await expect(page.getByText("2026.09")).toBeVisible();
+  await page.getByText("2026.09").click();
+  await expect(page.getByText("2026년 9월 정산")).toBeVisible();
+  await expect(page.getByText("9월 25일 (금)")).toBeVisible();
+
+  const dir = process.env.SHOT_DIR;
+  if (dir) {
+    await page.getByRole("button", { name: "뒤로" }).click();
+    await page.clock.setFixedTime(new Date("2026-09-25T10:00:00+09:00"));
+    await page.reload();
+    await page.getByRole("button", { name: "설정" }).click();
+    await page.waitForTimeout(2800);
+    await page.screenshot({ path: `${dir}/window-collapsed.png` });
+    await page.getByRole("button", { name: /전체 근무표 보기/ }).click();
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${dir}/window-expanded.png`, fullPage: true });
+  }
 });

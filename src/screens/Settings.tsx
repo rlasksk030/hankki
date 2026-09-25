@@ -2,7 +2,7 @@ import { useState } from "react";
 import { IconCheck, IconChevronRight } from "../components/icons";
 import { BottomSheet } from "../components/ui";
 import { type YearMonth, formatYearMonth } from "../lib/dates";
-import { groupMonthsForList, monthId } from "../lib/schedule";
+import { monthId, monthListView } from "../lib/schedule";
 import { type StoreData, exportJSON, restoreJSON } from "../lib/storage";
 
 const APP_VERSION = "1.0.0";
@@ -23,6 +23,16 @@ function MonthRow({ ym, label, onClick }: { ym: YearMonth; label: string; onClic
       <span className="month-registered">
         <IconCheck size={14} strokeWidth={2.4} /> 등록됨
       </span>
+      <IconChevronRight size={18} className="list-chevron" />
+    </button>
+  );
+}
+
+function AddRow({ ym, onClick }: { ym: YearMonth; onClick: () => void }) {
+  return (
+    <button type="button" className="list-row" onClick={onClick} aria-label={`${formatYearMonth(ym)} 근무표 추가`}>
+      <span className="list-label">{formatYearMonth(ym)}</span>
+      <span className="month-add">추가</span>
       <IconChevronRight size={18} className="list-chevron" />
     </button>
   );
@@ -49,11 +59,11 @@ export function SettingsScreen({
 }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [pendingRestore, setPendingRestore] = useState<StoreData | null>(null);
-  const [showPast, setShowPast] = useState(false);
-  // 기본 목록은 가까운 달만, 오래된 달은 '지난 근무표'로 접는다 (데이터는 모두 보관)
-  const groups = groupMonthsForList(data, today);
-  const pastByYear = [...new Set(groups.past.map((m) => m.year))].map(
-    (year) => [year, groups.past.filter((m) => m.year === year)] as const,
+  const [showAll, setShowAll] = useState(false);
+  // 기본 목록은 4개월 고정, 저장된 모든 달은 '전체 근무표 보기'에서 연도별·최신순 (데이터는 모두 보관)
+  const view = monthListView(data, today);
+  const allByYear = [...new Set(view.all.map((m) => m.year))].map(
+    (year) => [year, view.all.filter((m) => m.year === year)] as const,
   );
 
   const download = () => {
@@ -74,44 +84,42 @@ export function SettingsScreen({
         <h1 className="large-title">설정</h1>
 
         <h2 className="group-title">등록된 근무표</h2>
-        <ul className="list" aria-label="등록된 근무표">
-          {groups.recent.map((ym) => (
+        {/* 기본 목록은 오늘이 속한 정산의 기준월부터 4개월만 (등록된 달이 늘어나도 4행) */}
+        <ul className="list" aria-label="등록된 근무표" data-testid="month-window">
+          {view.window.map(({ ym, registered }) => (
             <li key={monthId(ym)}>
-              <MonthRow ym={ym} label={formatYearMonth(ym)} onClick={() => onAddMonth(ym)} />
+              {registered ? (
+                <MonthRow ym={ym} label={formatYearMonth(ym)} onClick={() => onAddMonth(ym)} />
+              ) : (
+                <AddRow ym={ym} onClick={() => onAddMonth(ym)} />
+              )}
             </li>
           ))}
-          {groups.add ? (
-            <li>
-              <button
-                type="button"
-                className="list-row"
-                onClick={() => onAddMonth(groups.add!)}
-                aria-label={`${formatYearMonth(groups.add)} 근무표 추가`}
-              >
-                <span className="list-label">{formatYearMonth(groups.add)}</span>
-                <span className="month-add">추가</span>
-                <IconChevronRight size={18} className="list-chevron" />
-              </button>
-            </li>
-          ) : null}
         </ul>
 
-        {groups.past.length > 0 ? (
+        {view.all.length > 0 ? (
           <>
             <button
               type="button"
               className="text-button past-toggle"
-              aria-expanded={showPast}
-              aria-controls="past-months"
-              onClick={() => setShowPast((v) => !v)}
+              aria-expanded={showAll}
+              aria-controls="all-months"
+              onClick={() => setShowAll((v) => !v)}
             >
-              {showPast ? "지난 근무표 접기" : `지난 근무표 보기 (${groups.past.length}개월)`}
+              {showAll ? "전체 근무표 접기" : `전체 근무표 보기 (${view.all.length}개월)`}
             </button>
-            {showPast ? (
-              <div id="past-months">
-                {pastByYear.map(([year, list]) => (
-                  <section key={year} aria-label={`${year}년 지난 근무표`}>
-                    <h3 className="group-subtitle">{year}년</h3>
+            {showAll ? (
+              <div id="all-months" aria-label="전체 근무표">
+                {view.next && !view.window.some((r) => monthId(r.ym) === monthId(view.next!)) ? (
+                  <ul className="list list-spaced">
+                    <li>
+                      <AddRow ym={view.next} onClick={() => onAddMonth(view.next!)} />
+                    </li>
+                  </ul>
+                ) : null}
+                {allByYear.map(([year, list]) => (
+                  <section key={year} aria-label={`${year}년 근무표`}>
+                    <h3 className="group-subtitle">{year}</h3>
                     <ul className="list">
                       {list.map((ym) => (
                         <li key={monthId(ym)}>
@@ -126,8 +134,8 @@ export function SettingsScreen({
           </>
         ) : null}
         <p className="group-footnote">
-          근무표는 달마다 한 번만 저장되고, 이어진 달이 있으면 21일~다음 달 20일 정산이 자동으로 만들어져요. 지난 근무표와
-          정산 기록도 모두 보관돼요.
+          근무표는 달마다 한 번만 저장되고, 이어진 달이 있으면 21일~다음 달 20일 정산이 자동으로 만들어져요. 여기에는 가까운
+          4개월만 보이고, 나머지 근무표와 정산 기록도 모두 보관돼요.
         </p>
 
         <h2 className="group-title">정산</h2>

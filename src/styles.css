@@ -1569,3 +1569,7 @@ dd {
   font-weight: 600;
   margin: 12px 4px 6px;
 }
+
+.list-spaced {
+  margin-top: 12px;
+}

@@ -2,7 +2,8 @@
 import { describe, expect, it } from "vitest";
 import {
   editShift,
-  groupMonthsForList,
+  monthId,
+  monthListView,
   emptyStore,
   listPeriods,
   makeMonth,
@@ -169,38 +170,51 @@ describe("여러 정산기간", () => {
   });
 });
 
-describe("설정의 등록된 근무표 목록 (화면에서만 접기)", () => {
+describe("설정의 등록된 근무표 목록 (기본 4개월 고정, 화면에서만)", () => {
   const JAN27 = { year: 2027, month: 1 };
-  const all = () =>
-    [SEP, OCT, NOV, DEC].reduce((d, ym) => upsertMonth(d, expectedMonth(ym)), emptyStore());
+  const FEB27 = { year: 2027, month: 2 };
+  const blank = (ym: typeof SEP, n: number) => makeMonth(ym, monthDays(ym, Array(n).fill("OFF")), NOW);
+  const withMonths = (extra: Array<[typeof SEP, number]>) =>
+    extra.reduce((d, [ym, n]) => upsertMonth(d, blank(ym, n)), upsertMonth(upsertMonth(sepOct(), expectedMonth(NOV)), expectedMonth(DEC)));
+  const rows = (v: ReturnType<typeof monthListView>) => v.window.map((r) => [monthId(r.ym), r.registered]);
 
-  it("오늘(9.25) 기준: 8월부터 보이므로 지난 근무표 없음, 다음 달은 추가", () => {
-    const g = groupMonthsForList(sepOct(), "2026-09-25");
-    expect(g.recent).toEqual([SEP, OCT]);
-    expect(g.past).toEqual([]);
-    expect(g.add).toEqual(NOV);
+  it("9·10월만 있을 때(9.25): 9·10월 등록됨, 11·12월 추가 — 4행", () => {
+    expect(rows(monthListView(sepOct(), "2026-09-25"))).toEqual([
+      ["2026-09", true],
+      ["2026-10", true],
+      ["2026-11", false],
+      ["2026-12", false],
+    ]);
   });
 
-  it("시간이 지나면 오래된 달은 자동으로 지난 근무표로 (최신순), 데이터는 그대로", () => {
-    const data = all();
-    const g = groupMonthsForList(data, "2027-01-10"); // 정산 기준월 12월 → 11월부터 기본 목록
-    expect(g.recent).toEqual([NOV, DEC]);
-    expect(g.past).toEqual([OCT, SEP]);
-    expect(g.add).toEqual(JAN27);
-    expect(data.months).toHaveLength(4);
+  it("1월·2월을 추가해도 기본 목록은 9~12월 4행 그대로, 전체에는 모두 있음", () => {
+    const data = withMonths([
+      [JAN27, 31],
+      [FEB27, 28],
+    ]);
+    const v = monthListView(data, "2026-09-25");
+    expect(v.window).toHaveLength(4);
+    expect(rows(v)).toEqual([
+      ["2026-09", true],
+      ["2026-10", true],
+      ["2026-11", true],
+      ["2026-12", true],
+    ]);
+    expect(v.all.map(monthId)).toEqual(["2027-02", "2027-01", "2026-12", "2026-11", "2026-10", "2026-09"]);
+    expect(v.next).toEqual({ year: 2027, month: 3 });
+  });
+
+  it("날짜가 지나면 4개월 창이 자동으로 이동한다 (10.25 → 10~1월, 11.25 → 11~2월)", () => {
+    const data = withMonths([
+      [JAN27, 31],
+      [FEB27, 28],
+    ]);
+    expect(monthListView(data, "2026-10-25").window.map((r) => monthId(r.ym))).toEqual(["2026-10", "2026-11", "2026-12", "2027-01"]);
+    expect(monthListView(data, "2026-11-25").window.map((r) => monthId(r.ym))).toEqual(["2026-11", "2026-12", "2027-01", "2027-02"]);
+    // 10월 20일까지는 아직 9월 정산 → 9~12월
+    expect(monthListView(data, "2026-10-20").window.map((r) => monthId(r.ym))).toEqual(["2026-09", "2026-10", "2026-11", "2026-12"]);
+    // 창 밖으로 숨겨져도 데이터와 정산은 그대로
+    expect(data.months).toHaveLength(6);
     expect(periodView(data, SEP)!.mealAllowance).toBe(7);
-  });
-
-  it("새 달을 추가하면 기본 목록에 나타난다", () => {
-    const g = groupMonthsForList(upsertMonth(sepOct(), expectedMonth(NOV)), "2026-09-25");
-    expect(g.recent).toEqual([SEP, OCT, NOV]);
-    expect(g.add).toEqual(DEC);
-  });
-
-  it("등록된 달이 모두 오래되었으면 오늘 정산의 기준월 추가를 안내한다", () => {
-    const g = groupMonthsForList(sepOct(), "2027-05-25");
-    expect(g.recent).toEqual([]);
-    expect(g.past).toEqual([OCT, SEP]);
-    expect(g.add).toEqual({ year: 2027, month: 5 });
   });
 });

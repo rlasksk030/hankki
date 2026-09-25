@@ -276,25 +276,31 @@ export function missingLabel(missing: YearMonth[], reference?: YearMonth): strin
     .join("·");
 }
 
-// ---------- 설정: 등록된 근무표 표시 (데이터는 그대로, 화면에서만 접는다) ----------
+// ---------- 설정: 등록된 근무표 표시 (데이터는 그대로, 화면에서만 범위를 정한다) ----------
 
-export interface MonthListGroups {
-  /** 기본 목록: 오늘이 속한 정산 기준월의 이전 달부터 이후에 등록된 달 */
-  recent: YearMonth[];
-  /** 지난 근무표: 그보다 오래된 달 (최신순) */
-  past: YearMonth[];
-  /** '추가'로 보여줄 다음 달 */
-  add: YearMonth | null;
+/** 설정 기본 목록에 보여줄 개월 수 (등록된 달이 몇 개든 이 이상 늘어나지 않는다) */
+export const MONTH_WINDOW = 4;
+
+export interface MonthRowInfo {
+  ym: YearMonth;
+  registered: boolean;
 }
 
-export function groupMonthsForList(data: StoreData, today: ISODate): MonthListGroups {
+export interface MonthListView {
+  /** 기본 목록: 오늘이 속한 정산의 기준월부터 4개월 (항상 4행) */
+  window: MonthRowInfo[];
+  /** 전체 근무표: 저장된 모든 달 (최신순) */
+  all: YearMonth[];
+  /** 전체 근무표에서 '추가'로 보여줄 다음 달 (마지막 등록 달 다음) */
+  next: YearMonth | null;
+}
+
+export function monthListView(data: StoreData, today: ISODate): MonthListView {
   const base = currentBase(today);
-  const fromId = monthId(addMonths(base, -1));
-  const months = registeredMonths(data);
-  const recent = months.filter((m) => monthId(m) >= fromId);
-  const past = months.filter((m) => monthId(m) < fromId).reverse();
-  let add = nextMonthToAdd(data);
-  // 오래 쓰지 않아 등록된 달이 모두 지났으면, 오늘이 속한 정산의 기준월부터 추가하도록 안내
-  if (add && monthId(add) < fromId) add = base;
-  return { recent, past, add };
+  const ids = new Set(data.months.map((m) => m.id));
+  const window = Array.from({ length: MONTH_WINDOW }, (_, i) => {
+    const ym = addMonths(base, i);
+    return { ym, registered: ids.has(monthId(ym)) };
+  });
+  return { window, all: registeredMonths(data).reverse(), next: nextMonthToAdd(data) };
 }
