@@ -134,9 +134,6 @@ test("수령 표시: '✓ 받음' 배지가 수령·취소 즉시 반영되고, 
   await expect(today).not.toHaveClass(/is-received/);
   await expect(offDay.getByText("받음")).toBeVisible();
 
-  // 안내 문구도 같은 배지 디자인
-  await expect(page.locator(".legend .meal-badge")).toHaveText("받음");
-  await expect(page.getByText("간편식을 받은 날")).toBeVisible();
 });
 
 for (const [name, viewport, scheme] of [
@@ -166,7 +163,7 @@ for (const [name, viewport, scheme] of [
     expect(d.y + d.height).toBeLessThanOrEqual(m.y + 0.5);
     expect(m.y + m.height).toBeLessThanOrEqual(b.y + 0.5);
     expect(b.y + b.height).toBeLessThanOrEqual(c.y + c.height + 0.5);
-    expect(b.height).toBeGreaterThanOrEqual(21);
+    expect(b.height).toBeGreaterThanOrEqual(18); // micro badge (행 높이를 밀지 않게)
     if (scheme === "dark") {
       const color = await cell.locator(".meal-badge").evaluate((el) => getComputedStyle(el).color);
       expect(color).toBe("rgb(127, 209, 168)");
@@ -185,24 +182,33 @@ test("오늘 표시는 채운 원이 아니라 날짜 둘레의 링이고, 오�
   const today = page.getByRole("gridcell", { name: /^9월 28일, C 근무.*오늘/ });
   await expect(today).toHaveClass(/is-today/);
   const date = today.locator(".calendar-date");
+  // 링은 행 높이를 밀지 않도록 날짜 숫자 둘레의 가상 요소(::before)로 그린다
   const style = await date.evaluate((el) => {
+    const ring = getComputedStyle(el, "::before");
     const cs = getComputedStyle(el);
-    return { bg: cs.backgroundColor, border: cs.borderTopColor, width: parseFloat(cs.borderTopWidth), color: cs.color, h: el.getBoundingClientRect().height, w: el.getBoundingClientRect().width };
+    return {
+      bg: ring.backgroundColor,
+      border: ring.borderTopColor,
+      width: parseFloat(ring.borderTopWidth),
+      ringH: parseFloat(ring.height),
+      ringW: parseFloat(ring.width),
+      color: cs.color,
+    };
   });
   expect(style.bg).toBe("rgba(0, 0, 0, 0)"); // 채움 없음
   expect(style.border).toBe("rgb(61, 104, 168)"); // muted blue 링
   expect(style.width).toBeGreaterThanOrEqual(1.5);
   expect(style.color).toBe("rgb(28, 28, 30)"); // 진한 charcoal 숫자
-  expect(style.h).toBeGreaterThanOrEqual(32);
-  expect(style.w).toBeGreaterThanOrEqual(32);
+  expect(style.ringH).toBeGreaterThanOrEqual(24);
+  expect(style.ringW).toBeGreaterThanOrEqual(24);
   // C 근무는 채운 차콜 원 그대로
   const shiftBg = await today.locator(".cal-shift.shift-c").evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(shiftBg).toBe("rgb(58, 58, 60)");
-  // 링과 근무 원은 겹치지 않는다
+  // 링과 근무 원은 겹치지 않는다 (링 = 날짜 상자 중심 ± 링 높이/2)
   const d = (await date.boundingBox())!;
   const m = (await today.locator(".cal-shift").boundingBox())!;
-  expect(d.y + d.height).toBeLessThanOrEqual(m.y + 0.5);
+  expect(d.y + d.height / 2 + style.ringH / 2).toBeLessThanOrEqual(m.y + 0.5);
   // 오늘이 아닌 날짜는 링 없음
   const other = page.getByRole("gridcell", { name: /^9월 29일/ }).locator(".calendar-date");
-  expect(await other.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe("rgba(0, 0, 0, 0)");
+  expect(await other.evaluate((el) => getComputedStyle(el, "::before").content)).toBe("none");
 });

@@ -399,6 +399,7 @@ export default function App() {
       content = (
         <SettingsScreen
           data={data}
+          today={today}
           onAddMonth={startSingle}
           onNewPeriod={() => startPair("month")}
           onRestore={(restored) => {

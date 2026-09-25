@@ -148,3 +148,34 @@ test("다른 달 사진을 넣으면 한 장 추가에서도 안내한다", asyn
   await expect(page.getByText("2026년 11월 화면이 아닌 것 같아요")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: "다시 선택" })).toBeVisible();
 });
+
+test("등록된 근무표: 가까운 달만 보이고, 오래된 달은 '지난 근무표 보기'에서 연도별·최신순 (데이터는 보관)", async ({ page }) => {
+  await startWithTwo(page);
+  await page.getByRole("button", { name: "설정" }).click();
+  // 9.25 기준: 9·10월 + 11월 추가, 지난 근무표 없음
+  await expect(page.getByRole("button", { name: "2026년 9월 근무표 등록됨, 다시 등록" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "2026년 11월 근무표 추가" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /지난 근무표 보기/ })).toHaveCount(0);
+
+  // 시간이 흘러 2027년 1월 10일 → 9·10월은 자동으로 지난 근무표로 이동
+  await page.clock.setFixedTime(new Date("2027-01-10T10:00:00+09:00"));
+  await page.reload();
+  await page.getByRole("button", { name: "설정" }).click();
+  await expect(page.getByRole("button", { name: "2026년 9월 근무표 등록됨, 다시 등록" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "2026년 11월 근무표 추가" })).toBeVisible();
+  const toggle = page.getByRole("button", { name: "지난 근무표 보기 (2개월)" });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  const year = page.getByRole("region", { name: "2026년 지난 근무표" });
+  await expect(year.getByRole("heading", { name: "2026년" })).toBeVisible();
+  const rows = year.getByRole("button");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveAccessibleName("2026년 10월 근무표 등록됨, 다시 등록");
+  await expect(rows.nth(1)).toHaveAccessibleName("2026년 9월 근무표 등록됨, 다시 등록");
+  await page.getByRole("button", { name: "지난 근무표 접기" }).click();
+  await expect(year).toHaveCount(0);
+
+  // 지난 정산 기록도 그대로
+  await page.getByRole("button", { name: "기록", exact: true }).click();
+  await expect(page.getByText("2026.09")).toBeVisible();
+});

@@ -13,6 +13,8 @@ interface Props {
   markUnsure?: boolean;
   onSelect?: (date: ISODate) => void;
   caption?: string;
+  /** 메인 화면: 남은 세로 공간을 주(행)들이 나눠 채운다 */
+  fill?: boolean;
 }
 
 /** 간편식 수령 상태 배지. 색만으로 구분하지 않도록 항상 '✓ 받음' 글자를 함께 쓴다. */
@@ -26,7 +28,7 @@ export function MealBadge() {
 }
 
 /** 정산기간(예: 9.21~10.20)을 일요일 시작 주 단위로 이어서 보여주는 달력 */
-export function PeriodCalendar({ startDate, endDate, shifts, mealDates, today, markUnsure, onSelect, caption }: Props) {
+export function PeriodCalendar({ startDate, endDate, shifts, mealDates, today, markUnsure, onSelect, caption, fill }: Props) {
   const byDate = new Map(shifts.map((s) => [s.date, s]));
   const gridStart = addDays(startDate, -weekdayOf(startDate));
   const gridEnd = addDays(endDate, 6 - weekdayOf(endDate));
@@ -37,7 +39,11 @@ export function PeriodCalendar({ startDate, endDate, shifts, mealDates, today, m
   }
 
   return (
-    <div className={`calendar${mealDates ? " has-meals" : ""}`} role="grid" aria-label={caption ?? "정산기간 달력"}>
+    <div
+      className={`calendar${mealDates ? " has-meals" : ""}${fill ? " is-fill" : ""}`}
+      role="grid"
+      aria-label={caption ?? "정산기간 달력"}
+    >
       <div className="calendar-row calendar-head" role="row">
         {WEEKDAY_LABELS.map((w, i) => (
           <span

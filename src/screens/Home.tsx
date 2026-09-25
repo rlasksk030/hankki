@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from "react";
-import { MealBadge, PeriodCalendar } from "../components/PeriodCalendar";
+import { PeriodCalendar } from "../components/PeriodCalendar";
 import { IconAlert, IconCheck, IconChevronLeft, IconChevronRight } from "../components/icons";
 import { BottomSheet } from "../components/ui";
 import { type ISODate, type YearMonth, formatMonthDay, formatPeriod, isWithin, weekdayLabel } from "../lib/dates";
@@ -131,14 +131,14 @@ function PeriodNav({
       >
         <IconChevronLeft />
       </button>
-      <div className="period-nav-label" aria-live="polite">
-        <p className="eyebrow" data-testid="period-label">
+      <p className="period-nav-label" aria-live="polite">
+        <span className="period-nav-kind" data-testid="period-label">
           {periodLabel(entry, today)}
-        </p>
-        <p className="home-period" data-testid="period">
+        </span>
+        <span className="home-period" data-testid="period">
           {formatPeriod(entry.startDate, entry.endDate)}
-        </p>
-      </div>
+        </span>
+      </p>
       <button
         type="button"
         className="icon-button"
@@ -268,17 +268,19 @@ function PeriodHome({
       <div className="screen-body home-body">
         {nav}
 
-        <section className="home-hero" aria-label="남은 간편식">
+        <section className="home-summary" aria-label="남은 간편식">
           <div className="home-number" key={remaining} data-testid="remaining" aria-live="polite">
             {remaining}
           </div>
-          <p className="home-caption">남은 간편식</p>
-          <p className="home-usage" data-testid="usage">
-            {used}회 사용 · 총 {settlement.mealAllowance}회
-          </p>
-          <p className="home-meta">
-            출근 {settlement.workDays}일 · 기준 {BASE_DAYS}일
-          </p>
+          <div className="home-summary-text">
+            <p className="home-caption">남은 간편식</p>
+            <p className="home-usage" data-testid="usage">
+              {used}회 사용 · 총 {settlement.mealAllowance}회
+            </p>
+            <p className="home-meta">
+              출근 {settlement.workDays}일 · 기준 {BASE_DAYS}일
+            </p>
+          </div>
         </section>
 
         {over > 0 ? (
@@ -304,14 +306,9 @@ function PeriodHome({
             mealDates={mealDates}
             today={today}
             onSelect={setSelected}
-            caption="수령 달력"
+            caption="수령 달력 — 날짜를 눌러 간편식 수령을 기록하거나 취소"
+            fill
           />
-          <div className="legend">
-            <p className="legend-row">
-              <MealBadge /> 간편식을 받은 날
-            </p>
-            <p>날짜를 눌러 기록하거나 취소할 수 있어요.</p>
-          </div>
         </section>
       </div>
 

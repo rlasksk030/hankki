@@ -275,3 +275,26 @@ export function missingLabel(missing: YearMonth[], reference?: YearMonth): strin
     .map((ym) => (reference && ym.year === reference.year ? `${ym.month}월` : formatYearMonth(ym)))
     .join("·");
 }
+
+// ---------- 설정: 등록된 근무표 표시 (데이터는 그대로, 화면에서만 접는다) ----------
+
+export interface MonthListGroups {
+  /** 기본 목록: 오늘이 속한 정산 기준월의 이전 달부터 이후에 등록된 달 */
+  recent: YearMonth[];
+  /** 지난 근무표: 그보다 오래된 달 (최신순) */
+  past: YearMonth[];
+  /** '추가'로 보여줄 다음 달 */
+  add: YearMonth | null;
+}
+
+export function groupMonthsForList(data: StoreData, today: ISODate): MonthListGroups {
+  const base = currentBase(today);
+  const fromId = monthId(addMonths(base, -1));
+  const months = registeredMonths(data);
+  const recent = months.filter((m) => monthId(m) >= fromId);
+  const past = months.filter((m) => monthId(m) < fromId).reverse();
+  let add = nextMonthToAdd(data);
+  // 오래 쓰지 않아 등록된 달이 모두 지났으면, 오늘이 속한 정산의 기준월부터 추가하도록 안내
+  if (add && monthId(add) < fromId) add = base;
+  return { recent, past, add };
+}

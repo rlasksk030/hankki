@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   editShift,
+  groupMonthsForList,
   emptyStore,
   listPeriods,
   makeMonth,
@@ -165,5 +166,41 @@ describe("여러 정산기간", () => {
     // 오늘(12.25)의 정산(12.21~1.20)도 목록에 들어가고, 필요한 달을 알려 준다
     const todayEntry = periods.find((p) => p.id === "2026-12")!;
     expect(todayEntry.status).toEqual({ available: false, missing: [DEC, { year: 2027, month: 1 }] });
+  });
+});
+
+describe("설정의 등록된 근무표 목록 (화면에서만 접기)", () => {
+  const JAN27 = { year: 2027, month: 1 };
+  const all = () =>
+    [SEP, OCT, NOV, DEC].reduce((d, ym) => upsertMonth(d, expectedMonth(ym)), emptyStore());
+
+  it("오늘(9.25) 기준: 8월부터 보이므로 지난 근무표 없음, 다음 달은 추가", () => {
+    const g = groupMonthsForList(sepOct(), "2026-09-25");
+    expect(g.recent).toEqual([SEP, OCT]);
+    expect(g.past).toEqual([]);
+    expect(g.add).toEqual(NOV);
+  });
+
+  it("시간이 지나면 오래된 달은 자동으로 지난 근무표로 (최신순), 데이터는 그대로", () => {
+    const data = all();
+    const g = groupMonthsForList(data, "2027-01-10"); // 정산 기준월 12월 → 11월부터 기본 목록
+    expect(g.recent).toEqual([NOV, DEC]);
+    expect(g.past).toEqual([OCT, SEP]);
+    expect(g.add).toEqual(JAN27);
+    expect(data.months).toHaveLength(4);
+    expect(periodView(data, SEP)!.mealAllowance).toBe(7);
+  });
+
+  it("새 달을 추가하면 기본 목록에 나타난다", () => {
+    const g = groupMonthsForList(upsertMonth(sepOct(), expectedMonth(NOV)), "2026-09-25");
+    expect(g.recent).toEqual([SEP, OCT, NOV]);
+    expect(g.add).toEqual(DEC);
+  });
+
+  it("등록된 달이 모두 오래되었으면 오늘 정산의 기준월 추가를 안내한다", () => {
+    const g = groupMonthsForList(sepOct(), "2027-05-25");
+    expect(g.recent).toEqual([]);
+    expect(g.past).toEqual([OCT, SEP]);
+    expect(g.add).toEqual({ year: 2027, month: 5 });
   });
 });
