@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IconAlert, IconChevronLeft, IconChevronRight, IconLock, IconPhoto } from "../components/icons";
+import { IconAlert, IconChevronLeft, IconChevronRight, IconPhoto } from "../components/icons";
 import { Spinner, TopBar } from "../components/ui";
 import type { AnalysisErrorKind } from "../lib/analyzer/analyze";
 import {
@@ -151,8 +151,11 @@ function PhotoSlot({
         {index}
       </span>
       <div className="photo-info">
-        <div className="photo-month">{formatYearMonth(month)}</div>
-        <div className="photo-state">{file ? "선택됨" : index === 1 ? "기준월 화면" : "다음 달 화면"}</div>
+        <div className="photo-month">{index === 1 ? "이번 달 근무표" : "다음 달 근무표"}</div>
+        <div className="photo-state">
+          {formatYearMonth(month)}
+          {file ? " · 선택됨" : ""}
+        </div>
       </div>
       <div className="photo-thumb" aria-hidden="true">
         {preview ? <img src={preview} alt="" /> : <IconPhoto size={22} />}
@@ -196,9 +199,9 @@ export function PhotosScreen({
       <div className="screen-body">
         <h1 className="title">근무표 가져오기</h1>
         <p className="subtitle">
-          오늘근무 앱에서
+          오늘근무에서
           <br />
-          기준월과 다음 달 화면을
+          이번 달과 다음 달 근무표를
           <br />
           각각 캡처해 주세요.
         </p>
@@ -206,16 +209,13 @@ export function PhotosScreen({
           <PhotoSlot index={1} month={base} file={files[0]} onPick={(f) => onPick(0, f)} />
           <PhotoSlot index={2} month={next} file={files[1]} onPick={(f) => onPick(1, f)} />
         </div>
-        <p className="hint hint-icon">
-          <IconLock size={16} />
-          사진은 이 기기 안에서만 분석되고, 저장하거나 업로드하지 않아요.
-        </p>
+        <p className="hint">오늘근무의 월간 달력 화면 전체가 보이도록 캡처하면 가장 정확해요.</p>
       </div>
       <div className="screen-footer">
         <button type="button" className="button button-primary" disabled={!ready} onClick={onAnalyze}>
           근무표 분석하기
         </button>
-        {!ready ? <p className="footnote">두 장을 모두 선택하면 분석할 수 있어요.</p> : null}
+        {!ready ? <p className="footnote">두 장을 선택하면 분석할 수 있어요.</p> : null}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { PeriodCalendar } from "../components/PeriodCalendar";
+import { MealBadge, PeriodCalendar } from "../components/PeriodCalendar";
 import { IconCheck } from "../components/icons";
 import { BottomSheet } from "../components/ui";
 import { type ISODate, formatMonthDay, formatPeriod, isWithin, weekdayLabel } from "../lib/dates";
@@ -193,9 +193,12 @@ export function HomeScreen({
             onSelect={setSelected}
             caption="수령 달력"
           />
-          <p className="legend">
-            <IconCheck size={13} strokeWidth={2.4} /> 간편식 받은 날 · 날짜를 눌러 기록하거나 취소할 수 있어요
-          </p>
+          <div className="legend">
+            <p className="legend-row">
+              <MealBadge /> 간편식을 받은 날
+            </p>
+            <p>날짜를 눌러 기록하거나 취소할 수 있어요.</p>
+          </div>
         </section>
       </div>
 

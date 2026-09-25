@@ -15,6 +15,16 @@ interface Props {
   caption?: string;
 }
 
+/** 간편식 수령 상태 배지. 색만으로 구분하지 않도록 항상 '✓ 받음' 글자를 함께 쓴다. */
+export function MealBadge() {
+  return (
+    <span className="meal-badge">
+      <IconCheck size={11} strokeWidth={2.8} />
+      받음
+    </span>
+  );
+}
+
 /** 정산기간(예: 9.21~10.20)을 일요일 시작 주 단위로 이어서 보여주는 달력 */
 export function PeriodCalendar({ startDate, endDate, shifts, mealDates, today, markUnsure, onSelect, caption }: Props) {
   const byDate = new Map(shifts.map((s) => [s.date, s]));
@@ -27,7 +37,7 @@ export function PeriodCalendar({ startDate, endDate, shifts, mealDates, today, m
   }
 
   return (
-    <div className="calendar" role="grid" aria-label={caption ?? "정산기간 달력"}>
+    <div className={`calendar${mealDates ? " has-meals" : ""}`} role="grid" aria-label={caption ?? "정산기간 달력"}>
       <div className="calendar-row calendar-head" role="row">
         {WEEKDAY_LABELS.map((w, i) => (
           <span
@@ -65,7 +75,7 @@ export function PeriodCalendar({ startDate, endDate, shifts, mealDates, today, m
                 type="button"
                 key={date}
                 role="gridcell"
-                className={`calendar-cell${isToday ? " is-today" : ""}${unsure ? " is-unsure" : ""}`}
+                className={`calendar-cell${isToday ? " is-today" : ""}${unsure ? " is-unsure" : ""}${meal ? " is-received" : ""}`}
                 onClick={onSelect ? () => onSelect(date) : undefined}
                 disabled={!onSelect}
                 aria-label={label}
@@ -83,9 +93,11 @@ export function PeriodCalendar({ startDate, endDate, shifts, mealDates, today, m
                     )
                   ) : null}
                 </span>
-                <span className="calendar-meal" aria-hidden="true">
-                  {meal ? <IconCheck size={13} strokeWidth={2.4} /> : null}
-                </span>
+                {mealDates ? (
+                  <span className="calendar-meal" aria-hidden="true">
+                    {meal ? <MealBadge /> : null}
+                  </span>
+                ) : null}
               </button>
             );
           })}

@@ -24,7 +24,10 @@
   --shift-c: #3a3a3c;
   --shift-c-text: #ffffff;
   --off: #b9b9be;
-  --meal: #7a8699;
+  /* 간편식 수령 상태: B(파랑)와 혼동되지 않도록 muted green */
+  --received: #2e7d5a;
+  --received-bg: rgba(46, 125, 90, 0.1);
+  --received-tint: rgba(46, 125, 90, 0.045);
 
   --radius: 12px;
   --radius-button: 14px;
@@ -62,7 +65,9 @@
     --shift-c: #d1d1d6;
     --shift-c-text: #1c1c1e;
     --off: #6e6e73;
-    --meal: #8e9bb0;
+    --received: #7fd1a8;
+    --received-bg: rgba(88, 190, 140, 0.16);
+    --received-tint: rgba(88, 190, 140, 0.07);
   }
 }
 
@@ -770,9 +775,9 @@ dd {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   min-height: 70px;
-  padding: 6px 0 4px;
+  padding: 3px 0 4px;
   border-radius: 10px;
   position: relative;
 }
@@ -785,15 +790,20 @@ dd {
   min-height: 70px;
 }
 
+/* 오늘 표시용 링(32px)이 들어갈 자리를 모든 날짜에 똑같이 두어 행 높이가 흔들리지 않게 한다 */
 .calendar-date {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
   font-size: 0.8125rem;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
-  line-height: 20px;
-  height: 20px;
-  min-width: 20px;
-  padding: 0 4px;
-  border-radius: 10px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0 6px;
+  border: 2px solid transparent;
+  border-radius: 16px;
 }
 
 .calendar-month {
@@ -801,14 +811,12 @@ dd {
   color: var(--text);
 }
 
+/* 오늘: 채운 원이 아니라 날짜 숫자 둘레의 얇은 muted blue 링 (C 근무의 채운 차콜 원과 겹치지 않게) */
 .is-today .calendar-date {
-  background: var(--text);
-  color: var(--bg);
-  font-weight: 600;
-}
-
-.is-today .calendar-month {
-  color: inherit;
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 700;
 }
 
 .calendar-mark {
@@ -835,16 +843,44 @@ dd {
   font-weight: 500;
 }
 
+/* 수령 배지 자리. 수령 달력(has-meals)에서만 두고, 모든 칸에 같은 높이를 남겨 행 높이가 흔들리지 않게 한다 */
 .calendar-meal {
-  height: 13px;
-  color: var(--meal);
+  height: 22px;
   display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.meal-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--received-bg);
+  color: var(--received);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.meal-badge svg {
+  flex: none;
+}
+
+/* 수령한 날: 셀 전체에 아주 옅은 green tint */
+.calendar-cell.is-received {
+  background: var(--received-tint);
 }
 
 .is-unsure .calendar-mark::after {
   content: "";
   position: absolute;
-  inset: 26px auto auto 50%;
+  inset: 33px auto auto 50%;
   width: 36px;
   height: 36px;
   margin-left: -18px;
@@ -854,16 +890,18 @@ dd {
 
 .legend {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
   color: var(--text-3);
   font-size: 0.75rem;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
-.legend svg {
-  color: var(--meal);
-  flex: none;
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
 }
 
 /* ---------- 메인 ---------- */
@@ -1257,8 +1295,8 @@ dd {
   gap: 6px;
 }
 
-.sheet-list dd.is-done svg {
-  color: var(--meal);
+.sheet-list dd.is-done {
+  color: var(--received);
 }
 
 @keyframes sheet-in {

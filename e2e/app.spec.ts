@@ -28,6 +28,13 @@ async function registerSchedule(page: Page, files: [string, string] = [SEP, OCT]
   await expect(page.getByText("9월 21일 ~ 10월 20일")).toBeVisible();
   await shot(page, "02-month");
   await page.getByRole("button", { name: "계속" }).click();
+  // 근무표 등록은 스크린샷 2장 방식 하나 (링크 입력 UI 없음)
+  await expect(page.getByRole("heading", { name: "근무표 가져오기" })).toBeVisible();
+  await expect(page.getByText("이번 달 근무표", { exact: true })).toBeVisible();
+  await expect(page.getByText("다음 달 근무표", { exact: true })).toBeVisible();
+  await expect(page.getByText("오늘근무의 월간 달력 화면 전체가 보이도록 캡처하면 가장 정확해요.")).toBeVisible();
+  await expect(page.getByText(/링크|todayshift/)).toHaveCount(0);
+  await expect(page.getByRole("textbox")).toHaveCount(0);
   await page.getByLabel("1번째 사진 선택: 2026년 9월").setInputFiles(files[0]);
   await page.getByLabel("2번째 사진 선택: 2026년 10월").setInputFiles(files[1]);
   await shot(page, "03-photos");

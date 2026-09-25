@@ -99,3 +99,110 @@ test("데스크톱(1280×800): 가운데 정렬된 폭으로 정상 동작한다
   await expect(page.getByTestId("remaining")).toHaveText("6");
   await ctx.close();
 });
+
+test("수령 표시: '✓ 받음' 배지가 수령·취소 즉시 반영되고, 휴무일에도 같게 보이며 오늘 표시와 구분된다", async ({ page }) => {
+  await registerAndStart(page);
+  const today = page.getByRole("gridcell", { name: /^9월 25일/ });
+  const offDay = page.getByRole("gridcell", { name: /^9월 26일, 휴무/ });
+
+  // 수령 전: 배지 없음
+  await expect(today.getByText("받음")).toHaveCount(0);
+
+  // 오늘 수령 → 즉시 배지 + 셀 상태
+  await page.getByRole("button", { name: "오늘 간편식 받았어요" }).click();
+  await expect(today.getByText("받음")).toBeVisible();
+  await expect(today).toHaveClass(/is-received/);
+  await expect(today).toHaveAccessibleName(/간편식 수령/);
+  // 오늘 표시(날짜 링)와 근무 원(B)은 그대로
+  await expect(today).toHaveClass(/is-today/);
+  await expect(today.locator(".cal-shift.shift-b")).toHaveText("B");
+
+  // 휴무일 수령도 같은 배지
+  await offDay.click();
+  await page.getByRole("button", { name: "이 날 수령으로 기록" }).click();
+  await expect(offDay.getByText("받음")).toBeVisible();
+  await expect(offDay.locator(".cal-off")).toHaveText("휴");
+
+  // 배지는 green 계열 (B 파랑과 다름)
+  const badgeColor = await today.locator(".meal-badge").evaluate((el) => getComputedStyle(el).color);
+  expect(badgeColor).toBe("rgb(46, 125, 90)");
+
+  // 수령 취소 → 즉시 배지 사라짐
+  await today.click();
+  await page.getByRole("button", { name: "수령 취소" }).click();
+  await expect(today.getByText("받음")).toHaveCount(0);
+  await expect(today).not.toHaveClass(/is-received/);
+  await expect(offDay.getByText("받음")).toBeVisible();
+
+  // 안내 문구도 같은 배지 디자인
+  await expect(page.locator(".legend .meal-badge")).toHaveText("받음");
+  await expect(page.getByText("간편식을 받은 날")).toBeVisible();
+});
+
+for (const [name, viewport, scheme] of [
+  ["iPhone SE", { width: 375, height: 667 }, "light"],
+  ["iPhone 15 Pro Max", { width: 430, height: 932 }, "light"],
+  ["다크 모드", { width: 390, height: 844 }, "dark"],
+] as const) {
+  test(`수령 배지가 날짜·근무 표시와 겹치지 않는다 (${name})`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport, colorScheme: scheme });
+    const page = await ctx.newPage();
+    await registerAndStart(page);
+    await page.getByRole("button", { name: "오늘 간편식 받았어요" }).click();
+    const cell = page.getByRole("gridcell", { name: /^9월 25일/ });
+    const [cellBox, dateBox, markBox, badgeBox] = await Promise.all([
+      cell.boundingBox(),
+      cell.locator(".calendar-date").boundingBox(),
+      cell.locator(".cal-shift").boundingBox(),
+      cell.locator(".meal-badge").boundingBox(),
+    ]);
+    const c = cellBox!;
+    const d = dateBox!;
+    const m = markBox!;
+    const b = badgeBox!;
+    // 배지가 셀 안에 들어가고, 위→아래로 날짜 · 근무 · 배지 순서로 겹치지 않는다
+    expect(b.x).toBeGreaterThanOrEqual(c.x - 0.5);
+    expect(b.x + b.width).toBeLessThanOrEqual(c.x + c.width + 0.5);
+    expect(d.y + d.height).toBeLessThanOrEqual(m.y + 0.5);
+    expect(m.y + m.height).toBeLessThanOrEqual(b.y + 0.5);
+    expect(b.y + b.height).toBeLessThanOrEqual(c.y + c.height + 0.5);
+    expect(b.height).toBeGreaterThanOrEqual(21);
+    if (scheme === "dark") {
+      const color = await cell.locator(".meal-badge").evaluate((el) => getComputedStyle(el).color);
+      expect(color).toBe("rgb(127, 209, 168)");
+    }
+    const shotDir = process.env.SHOT_DIR;
+    if (shotDir) await page.screenshot({ path: `${shotDir}/badge-${name.replace(/\s+/g, "-")}.png` });
+    await ctx.close();
+  });
+}
+
+test("오늘 표시는 채운 원이 아니라 날짜 둘레의 링이고, 오늘이 C 근무여도 두 상태가 구분된다", async ({ page }) => {
+  await registerAndStart(page);
+  // 오늘(9/25)을 C 근무일(9/28)로 옮겨 다시 연다
+  await page.clock.setFixedTime(new Date("2026-09-28T10:00:00+09:00"));
+  await page.reload();
+  const today = page.getByRole("gridcell", { name: /^9월 28일, C 근무.*오늘/ });
+  await expect(today).toHaveClass(/is-today/);
+  const date = today.locator(".calendar-date");
+  const style = await date.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { bg: cs.backgroundColor, border: cs.borderTopColor, width: parseFloat(cs.borderTopWidth), color: cs.color, h: el.getBoundingClientRect().height, w: el.getBoundingClientRect().width };
+  });
+  expect(style.bg).toBe("rgba(0, 0, 0, 0)"); // 채움 없음
+  expect(style.border).toBe("rgb(61, 104, 168)"); // muted blue 링
+  expect(style.width).toBeGreaterThanOrEqual(1.5);
+  expect(style.color).toBe("rgb(28, 28, 30)"); // 진한 charcoal 숫자
+  expect(style.h).toBeGreaterThanOrEqual(32);
+  expect(style.w).toBeGreaterThanOrEqual(32);
+  // C 근무는 채운 차콜 원 그대로
+  const shiftBg = await today.locator(".cal-shift.shift-c").evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(shiftBg).toBe("rgb(58, 58, 60)");
+  // 링과 근무 원은 겹치지 않는다
+  const d = (await date.boundingBox())!;
+  const m = (await today.locator(".cal-shift").boundingBox())!;
+  expect(d.y + d.height).toBeLessThanOrEqual(m.y + 0.5);
+  // 오늘이 아닌 날짜는 링 없음
+  const other = page.getByRole("gridcell", { name: /^9월 29일/ }).locator(".calendar-date");
+  expect(await other.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe("rgba(0, 0, 0, 0)");
+});
