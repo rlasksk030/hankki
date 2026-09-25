@@ -32,6 +32,17 @@ export interface MonthlySchedule {
   /** 날짜순. 새로 분석한 달은 1일~말일 전체 */
   days: ShiftDay[];
   updatedAt: string;
+  /** 월 검증 근거: 사진 제목 / 달력 구조 / 사용자가 직접 확인하고 진행 / 직접 입력 */
+  monthCheck?: MonthCheckSource;
+  /** 같은 사진 중복 등록 확인용 사진 지문 (사진 원본은 저장하지 않음) */
+  photoHash?: string;
+}
+
+export type MonthCheckSource = "title" | "layout" | "user-confirmed" | "manual";
+
+export interface MonthMeta {
+  monthCheck?: MonthCheckSource;
+  photoHash?: string;
 }
 
 export interface SettlementRecord {
@@ -70,7 +81,7 @@ export function toYearMonth(id: string): YearMonth {
   return { year, month };
 }
 
-export function makeMonth(ym: YearMonth, days: ShiftDay[], now: Date = new Date()): MonthlySchedule {
+export function makeMonth(ym: YearMonth, days: ShiftDay[], now: Date = new Date(), meta: MonthMeta = {}): MonthlySchedule {
   const id = monthId(ym);
   return {
     id,
@@ -78,7 +89,20 @@ export function makeMonth(ym: YearMonth, days: ShiftDay[], now: Date = new Date(
     month: ym.month,
     days: days.filter((d) => d.date.startsWith(`${id}-`)).sort((a, b) => a.date.localeCompare(b.date)),
     updatedAt: now.toISOString(),
+    ...(meta.monthCheck ? { monthCheck: meta.monthCheck } : {}),
+    ...(meta.photoHash ? { photoHash: meta.photoHash } : {}),
   };
+}
+
+/** 같은 사진이 이미 다른 달로 등록되어 있는지 (사진 지문 비교) */
+export function monthWithSamePhoto(
+  data: StoreData,
+  photoHash: string,
+  except: YearMonth,
+  same: (a: string, b: string) => boolean,
+): YearMonth | null {
+  const found = data.months.find((m) => m.id !== monthId(except) && m.photoHash && same(m.photoHash, photoHash));
+  return found ? { year: found.year, month: found.month } : null;
 }
 
 function dayMap(months: MonthlySchedule[]): Map<ISODate, ShiftDay> {

@@ -2,7 +2,9 @@
 // 실제(비식별) 10월 화면(deid-2026-10.png)의 칸 조각을 그대로 옮겨 붙인다:
 //   - 근무 표시(A/B/C 원, '휴')는 10월의 해당 근무 칸에서
 //   - 날짜 숫자는 10월의 같은 날짜 칸에서
+//   - 상단 제목("2026.11")은 10월 화면 제목("2026.10")의 실제 글자 조각을 이어 붙여 만든다
 // 달력 격자·색·크기는 실제 화면 그대로이고, 근무 패턴은 tests/fixtures/synthetic-months.json 값을 쓴다.
+// 추가로 제목을 지운 10월 화면(synthetic-2026-10-notitle.png)을 만든다 — 제목을 못 읽을 때의 월 검증 테스트용.
 // 사용법: node scripts/make-synthetic-months.mjs
 import { readFileSync } from "node:fs";
 import sharp from "sharp";
@@ -48,6 +50,32 @@ function copy(out, from, to, dx0, dy0, w, h) {
   }
 }
 
+// 10월 화면 제목 "2026.10"의 글자별 가로 범위(px) — 실제 스크린샷에서 측정 (923px 폭 기준)
+const TITLE_Y0 = Math.round(H * 0.06);
+const TITLE_Y1 = Math.round(H * 0.115);
+const GLYPH_X = { "2": [112, 138], "0": [143, 172], "6": [208, 236], ".": [242, 249], "1": [264, 279] };
+
+function writeTitle(out, text) {
+  let x = 112;
+  for (const ch of text) {
+    const [a, b] = GLYPH_X[ch];
+    const w = b - a + 1;
+    const pad = ch === "1" ? 5 : 0; // '1'은 좁아서 양옆 여백을 둔다 (실제 화면과 비슷하게)
+    x += pad;
+    for (let y = TITLE_Y0; y < TITLE_Y1; y++) {
+      for (let dx = 0; dx < w; dx++) {
+        const si = (y * W + a + dx) * 4;
+        const di = (y * W + x + dx) * 4;
+        out[di] = px[si];
+        out[di + 1] = px[si + 1];
+        out[di + 2] = px[si + 2];
+        out[di + 3] = 255;
+      }
+    }
+    x += w + pad + (ch === "." ? 15 : ch === "6" ? 6 : 5);
+  }
+}
+
 function fillWhite(out, x0, y0, x1, y1) {
   for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) out.fill(255, (y * W + x) * 4, (y * W + x) * 4 + 4);
 }
@@ -57,8 +85,9 @@ for (const [id, pattern] of Object.entries(patterns)) {
   const [year, month] = id.split("-").map(Number);
   const offset = new Date(year, month - 1, 1).getDay();
   const out = Buffer.from(px);
-  // 제목(2026.10) 지우기, 모든 칸 비우기(격자선은 남김)
-  fillWhite(out, 0, Math.round(H * 0.06), Math.round(W * 0.5), Math.round(H * 0.115));
+  // 제목(2026.10)을 지우고 이 달 제목으로, 모든 칸 비우기(격자선은 남김)
+  fillWhite(out, Math.round(W * 0.1), TITLE_Y0, Math.round(W * 0.5), TITLE_Y1);
+  writeTitle(out, `${year}.${String(month).padStart(2, "0")}`);
   for (let i = 0; i < ROWS * 7; i++) {
     const r = cellRect(i);
     fillWhite(out, r.left, r.top, r.right, r.bottom);
@@ -76,4 +105,12 @@ for (const [id, pattern] of Object.entries(patterns)) {
   const file = `synthetic-${id}.png`;
   await sharp(out, { raw: { width: W, height: H, channels: 4 } }).png().toFile(new URL(file, dir).pathname);
   console.log(`만듦: ${file}`);
+}
+
+// 제목만 지운 10월 화면 (달력은 그대로)
+{
+  const out = Buffer.from(px);
+  fillWhite(out, Math.round(W * 0.1), TITLE_Y0, Math.round(W * 0.5), TITLE_Y1);
+  await sharp(out, { raw: { width: W, height: H, channels: 4 } }).png().toFile(new URL("synthetic-2026-10-notitle.png", dir).pathname);
+  console.log("만듦: synthetic-2026-10-notitle.png");
 }

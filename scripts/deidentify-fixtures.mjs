@@ -6,17 +6,28 @@ import { existsSync } from "node:fs";
 import sharp from "sharp";
 
 const dir = new URL("../tests/fixtures/", import.meta.url);
+// [원본, 결과, 연, 월] — 행 수(5주/6주)는 달력으로 계산한다
 const pairs = [
-  ["private/oneulgeunmu-2026-09.webp", "deid-2026-09.png"],
-  ["private/oneulgeunmu-2026-10.webp", "deid-2026-10.png"],
+  ["private/oneulgeunmu-2026-09.webp", "deid-2026-09.png", 2026, 9],
+  ["private/oneulgeunmu-2026-10.webp", "deid-2026-10.png", 2026, 10],
+  ["private/oneulgeunmu-2026-11.webp", "deid-2026-11.png", 2026, 11],
+  ["private/oneulgeunmu-2026-12.webp", "deid-2026-12.png", 2026, 12],
+  ["private/oneulgeunmu-2027-01.webp", "deid-2027-01.png", 2027, 1],
+  ["private/oneulgeunmu-2027-02.webp", "deid-2027-02.png", 2027, 2],
+  ["private/oneulgeunmu-2027-03.webp", "deid-2027-03.png", 2027, 3],
+  ["private/oneulgeunmu-2027-04.webp", "deid-2027-04.png", 2027, 4],
+  ["private/oneulgeunmu-2027-05.webp", "deid-2027-05.png", 2027, 5],
+  ["private/oneulgeunmu-2027-08.webp", "deid-2027-08.png", 2027, 8],
 ];
+
+const calendarRows = (year, month) =>
+  Math.ceil((new Date(year, month - 1, 1).getDay() + new Date(year, month, 0).getDate()) / 7);
 
 // 오늘근무 iPhone 세로 스크린샷의 달력 위치(이미지 비율)
 const TOP = 0.132;
 const BOTTOM = 0.8765;
-const ROWS = 5;
-
-for (const [src, out] of pairs) {
+for (const [src, out, year, month] of pairs) {
+  const ROWS = calendarRows(year, month);
   const input = new URL(src, dir).pathname;
   if (!existsSync(input)) {
     console.log(`건너뜀: ${src} 없음`);

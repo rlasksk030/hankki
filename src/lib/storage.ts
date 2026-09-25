@@ -27,6 +27,7 @@ function defaultStorage(): StorageLike | null {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_RE = /^\d{4}-\d{2}$/;
 const SHIFT_VALUES = new Set<Shift>(["A", "B", "C", "OFF"]);
+const MONTH_CHECKS = new Set(["title", "layout", "user-confirmed", "manual"]);
 
 type Rec = Record<string, unknown>;
 const isObj = (v: unknown): v is Rec => !!v && typeof v === "object" && !Array.isArray(v);
@@ -92,6 +93,8 @@ function fromV2(raw: Rec): StoreData {
     month: m.month as number,
     days: (m.days as Rec[]).map(normalizeDay).sort((a, b) => a.date.localeCompare(b.date)),
     updatedAt: typeof m.updatedAt === "string" ? m.updatedAt : "",
+    ...(MONTH_CHECKS.has(m.monthCheck as string) ? { monthCheck: m.monthCheck as MonthlySchedule["monthCheck"] } : {}),
+    ...(typeof m.photoHash === "string" && /^[0-9a-f]{64}$/.test(m.photoHash) ? { photoHash: m.photoHash } : {}),
   }));
   const settlements: SettlementRecord[] = (raw.settlements as Rec[]).map((r) => ({
     id: r.id as string,

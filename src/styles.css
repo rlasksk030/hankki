@@ -28,6 +28,8 @@
   --received: #2e7d5a;
   --received-bg: rgba(46, 125, 90, 0.1);
   --received-tint: rgba(46, 125, 90, 0.045);
+  /* 오늘: 근무(노랑·파랑·차콜·회색)와 수령(초록)에 쓰지 않는 로즈 */
+  --today: #d92d6a;
 
   --radius: 12px;
   --radius-button: 14px;
@@ -68,6 +70,7 @@
     --received: #7fd1a8;
     --received-bg: rgba(88, 190, 140, 0.16);
     --received-tint: rgba(88, 190, 140, 0.07);
+    --today: #ff6b9d;
   }
 }
 
@@ -817,11 +820,12 @@ dd {
 }
 
 /*
- * 오늘: 채운 원이 아니라 날짜 숫자 둘레의 얇은 muted blue 링 (C 근무의 채운 차콜 원과 겹치지 않게).
+ * 오늘: 채운 원이 아니라 날짜 숫자 둘레의 로즈 링 + 로즈 숫자 (C 근무의 채운 차콜 원과 겹치지 않게).
+ * 로즈는 근무 · 수령 표시에 쓰지 않는 색이라 달력에서 바로 눈에 띈다.
  * 행 높이를 늘리지 않도록 가상 요소로 그린다.
  */
 .is-today .calendar-date {
-  color: var(--text);
+  color: var(--today);
   font-weight: 700;
 }
 
@@ -834,7 +838,7 @@ dd {
   height: 24px;
   transform: translate(-50%, -50%);
   box-sizing: border-box;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--today);
   border-radius: 12px;
   pointer-events: none;
 }

@@ -8,12 +8,13 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 import { beforeAll, describe, expect, it } from "vitest";
-import { analyzeMonth, analyzePair } from "../src/lib/analyzer/analyze";
+import { analyzeMonth, analyzePair, samePhoto } from "../src/lib/analyzer/analyze";
+import { verifyTitle } from "../src/lib/analyzer/title";
 import { findHorizontalLines } from "../src/lib/analyzer/grid";
 import type { RasterImage } from "../src/lib/analyzer/pixels";
 import { countShifts, createSettlement } from "../src/lib/settlement";
-import { EXPECTED_2026_09, EXPECTED_MONTHS } from "./expected";
-import { emptyStore, makeMonth, periodView, upsertMonth } from "../src/lib/schedule";
+import { EXPECTED_2026_09, EXPECTED_MONTHS, EXPECTED_REAL_MONTHS } from "./expected";
+import { emptyStore, makeMonth, monthId, periodView, upsertMonth } from "../src/lib/schedule";
 
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 
@@ -211,4 +212,120 @@ describe("다음 달 근무표 추가 (합성 11월·12월 화면)", () => {
     data = upsertMonth(data, makeMonth(DEC, d.days));
     expect([SEP, { year: 2026, month: 10 }, NOV].map((b) => periodView(data, b)!.mealAllowance)).toEqual([7, 8, 6]);
   });
+});
+
+describe("월 검증: 선택한 연/월과 사진 속 근무표의 연/월", () => {
+  const Y = (year: number, month: number) => ({ year, month });
+  const load = (name: string, width?: number) => decode(fixture(name), width);
+  // 실제 오늘근무 화면(비식별) 10장 + 합성 2장. 2027년 1월 · 5월은 6주 달력.
+  const photos = [
+    { file: "deid-2026-09.png", ym: Y(2026, 9), expected: EXPECTED_MONTHS["2026-09"] },
+    { file: "deid-2026-10.png", ym: Y(2026, 10), expected: EXPECTED_MONTHS["2026-10"] },
+    { file: "deid-2026-11.png", ym: Y(2026, 11), expected: EXPECTED_REAL_MONTHS["2026-11"] },
+    { file: "deid-2026-12.png", ym: Y(2026, 12), expected: EXPECTED_REAL_MONTHS["2026-12"] },
+    { file: "deid-2027-01.png", ym: Y(2027, 1), expected: EXPECTED_REAL_MONTHS["2027-01"] },
+    { file: "deid-2027-02.png", ym: Y(2027, 2), expected: EXPECTED_REAL_MONTHS["2027-02"] },
+    { file: "deid-2027-03.png", ym: Y(2027, 3), expected: EXPECTED_REAL_MONTHS["2027-03"] },
+    { file: "deid-2027-04.png", ym: Y(2027, 4), expected: EXPECTED_REAL_MONTHS["2027-04"] },
+    { file: "deid-2027-05.png", ym: Y(2027, 5), expected: EXPECTED_REAL_MONTHS["2027-05"] },
+    { file: "deid-2027-08.png", ym: Y(2027, 8), expected: EXPECTED_REAL_MONTHS["2027-08"] },
+    { file: "synthetic-2026-11.png", ym: Y(2026, 11), expected: EXPECTED_MONTHS["2026-11"] },
+    { file: "synthetic-2026-12.png", ym: Y(2026, 12), expected: EXPECTED_MONTHS["2026-12"] },
+  ];
+  const titleOf = (ym: { year: number; month: number }) => `${ym.year}.${String(ym.month).padStart(2, "0")}`;
+
+  it("정상: 사진과 같은 달 선택 → 제목 'YYYY.MM'으로 통과, 근무 판독은 정답과 일치 (원본 · 1179px · 600px)", async () => {
+    for (const p of photos) {
+      for (const width of [undefined, 1179, 600]) {
+        const img = await load(p.file, width);
+        const label = `${p.file}@${width ?? "orig"}`;
+        expect(verifyTitle(img, p.ym), label).toEqual({ kind: "match", text: titleOf(p.ym) });
+        const r = analyzeMonth(img, p.ym);
+        expect(r.ok, label).toBe(true);
+        if (!r.ok) continue;
+        expect(r.check, label).toMatchObject({ status: "ok", by: "title" });
+        expect(r.warning, label).toBeUndefined();
+        expect(r.days.map((d) => d.shift), label).toEqual(p.expected);
+        expect(r.days.filter((d) => d.confidence < 0.7), label).toEqual([]);
+      }
+    }
+  }, 120_000);
+
+  it("오류: 9월 사진을 12월로, 11월 사진을 2027년 2월로 → 거부 (사진 제목도 알려 줌)", async () => {
+    expect(analyzeMonth(await load("deid-2026-09.png"), Y(2026, 12))).toMatchObject({ ok: false, kind: "month-mismatch", title: "2026.09" });
+    expect(analyzeMonth(await load("deid-2026-11.png"), Y(2027, 2))).toMatchObject({ ok: false, kind: "month-mismatch", title: "2026.11" });
+    expect(analyzeMonth(await load("synthetic-2026-11.png"), Y(2027, 2))).toMatchObject({ ok: false, kind: "month-mismatch", title: "2026.11" });
+    expect(analyzeMonth(await load("synthetic-2026-12.png"), Y(2026, 9))).toMatchObject({ ok: false, kind: "month-mismatch" });
+  });
+
+  it("각 사진은 2026년 1월~2028년 12월(36개월) 중 자기 달에서만 자동 통과하고, 다른 달은 거부 또는 확인 요청", async () => {
+    for (const p of photos) {
+      const img = await load(p.file);
+      const autoPassed: string[] = [];
+      for (let k = 0; k < 36; k++) {
+        const ym = Y(2026 + Math.floor(k / 12), (k % 12) + 1);
+        const r = analyzeMonth(img, ym);
+        if (r.ok && r.check.status === "ok") autoPassed.push(monthId(ym));
+      }
+      expect(autoPassed, p.file).toEqual([monthId(p.ym)]);
+    }
+  }, 180_000);
+
+  it("제목을 못 읽으면 달력 구조로 판단: 더 잘 맞는 다른 달이 있으면 거부, 같은 배치의 달이 있으면 사용자 확인", async () => {
+    const noTitle = await load("synthetic-2026-10-notitle.png");
+    expect(verifyTitle(noTitle, Y(2026, 10)).kind).toBe("unknown");
+    // 2026년 10월과 2026년 1월은 시작 요일(목)·일수(31)가 같아 배치가 똑같다 → 자동 통과 대신 확인
+    const asOct = analyzeMonth(noTitle, Y(2026, 10));
+    expect(asOct.ok && asOct.check).toMatchObject({ status: "confirm", reason: "ambiguous" });
+    expect(asOct.ok && asOct.warning).toMatchObject({ reason: "ambiguous" });
+    // 배치가 다른 달(11월)로 고르면 거부
+    expect(analyzeMonth(noTitle, Y(2026, 11))).toMatchObject({ ok: false, kind: "month-mismatch" });
+  });
+
+  it("같은 사진이면 지문이 같고, 다른 달 사진이면 다르다 (크기 변경에도 같은 사진으로 인식)", async () => {
+    const sep = await load("deid-2026-09.png");
+    const sepSmall = await load("deid-2026-09.png", 600);
+    const oct = await load("deid-2026-10.png");
+    const fp = (img: RasterImage, ym: { year: number; month: number }) => {
+      const r = analyzeMonth(img, ym);
+      if (!r.ok) throw new Error("판독 실패");
+      return r.fingerprint;
+    };
+    expect(samePhoto(fp(sep, Y(2026, 9)), fp(sepSmall, Y(2026, 9)))).toBe(true);
+    expect(samePhoto(fp(sep, Y(2026, 9)), fp(oct, Y(2026, 10)))).toBe(false);
+  });
+
+  it("두 장 분석: 같은 사진 두 장은 거부, 정상 두 장은 제목으로 통과하고 결과는 그대로 (A6 B11 C6, 23, 7)", async () => {
+    const sep = await load("deid-2026-09.png");
+    const oct = await load("deid-2026-10.png");
+    expect(analyzePair(sep, sep, Y(2026, 9))).toMatchObject({ ok: false, kind: "month-mismatch", photo: 2 });
+    const r = analyzePair(sep, oct, Y(2026, 9));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.checks.map((c) => c.status === "ok" && c.by)).toEqual(["title", "title"]);
+    expect(r.warnings).toEqual([]);
+    const s = createSettlement(Y(2026, 9), r.shifts);
+    expect(countShifts(s.shifts)).toMatchObject({ A: 6, B: 11, C: 6 });
+    expect([s.workDays, s.mealAllowance]).toEqual([23, 7]);
+  });
+});
+
+describe("실제 화면 원본(로컬 전용)도 월 검증·판독 통과", () => {
+  const originals = ["2026-09-b", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05", "2027-08"].map((id) => ({
+    id,
+    file: `private/oneulgeunmu-${id}.webp`,
+  }));
+  const available = originals.every((o) => existsSync(fixture(o.file)));
+  (available ? it : it.skip)("원본 9장: 제목으로 자기 달 통과, 근무 전부 정답", async () => {
+    for (const o of originals) {
+      const month = o.id.slice(0, 7);
+      const [year, m] = month.split("-").map(Number);
+      const r = analyzeMonth(await decode(fixture(o.file)), { year, month: m });
+      expect(r.ok, o.id).toBe(true);
+      if (!r.ok) continue;
+      expect(r.check, o.id).toMatchObject({ status: "ok", by: "title" });
+      const expected = month === "2026-09" ? EXPECTED_MONTHS["2026-09"] : EXPECTED_REAL_MONTHS[month];
+      expect(r.days.map((d) => d.shift), o.id).toEqual(expected);
+    }
+  }, 60_000);
 });

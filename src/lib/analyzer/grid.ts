@@ -19,8 +19,19 @@ export interface CalendarGrid {
 export const FALLBACK_TOP = 0.132;
 export const FALLBACK_BOTTOM = 0.8765;
 
+// 같은 이미지를 여러 달과 비교할 때(월 검증) 격자선 탐지를 한 번만 하도록 기억해 둔다
+const lineCache = new WeakMap<object, number[]>();
+
 /** 가로 방향으로 거의 끝까지 이어지는 옅은 회색 선(달력 행 구분선)의 y 좌표 목록 */
 export function findHorizontalLines(img: RasterImage): number[] {
+  const cached = lineCache.get(img.data);
+  if (cached) return cached;
+  const lines = scanHorizontalLines(img);
+  lineCache.set(img.data, lines);
+  return lines;
+}
+
+function scanHorizontalLines(img: RasterImage): number[] {
   const { width, height } = img;
   const x0 = Math.floor(width * 0.02);
   const x1 = Math.ceil(width * 0.98);

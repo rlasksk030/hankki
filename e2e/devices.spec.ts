@@ -196,9 +196,15 @@ test("오늘 표시는 채운 원이 아니라 날짜 둘레의 링이고, 오�
     };
   });
   expect(style.bg).toBe("rgba(0, 0, 0, 0)"); // 채움 없음
-  expect(style.border).toBe("rgb(61, 104, 168)"); // muted blue 링
+  expect(style.border).toBe("rgb(217, 45, 106)"); // 로즈 링
   expect(style.width).toBeGreaterThanOrEqual(1.5);
-  expect(style.color).toBe("rgb(28, 28, 30)"); // 진한 charcoal 숫자
+  expect(style.color).toBe("rgb(217, 45, 106)"); // 로즈 숫자
+  // 근무(A 노랑 · B 파랑 · C 차콜 · 휴무 회색), '받음' 초록 어느 것과도 다른 색
+  const used = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    return ["--shift-a", "--shift-b", "--shift-c", "--off", "--received", "--accent"].map((v) => cs.getPropertyValue(v).trim());
+  });
+  expect(used).not.toContain("#d92d6a");
   expect(style.ringH).toBeGreaterThanOrEqual(24);
   expect(style.ringW).toBeGreaterThanOrEqual(24);
   // C 근무는 채운 차콜 원 그대로

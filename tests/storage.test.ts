@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyStore, periodView, saveMealUses, upsertMonth } from "../src/lib/schedule";
+import { emptyStore, makeMonth, periodView, saveMealUses, upsertMonth } from "../src/lib/schedule";
 import { addMealUse, createSettlement } from "../src/lib/settlement";
 import { SCHEMA_VERSION, STORAGE_KEY, exportJSON, loadStore, restoreJSON, saveStore } from "../src/lib/storage";
 import { EXPECTED_2026_09 } from "./expected";
@@ -69,6 +69,25 @@ describe("localStorage 저장", () => {
     expect(view.shifts[0]).toMatchObject({ date: "2026-09-21", shift: "B" });
     expect(view.mealUses.map((m) => m.date)).toEqual(["2026-09-25"]);
     expect(view.mealAllowance).toBe(7);
+  });
+
+  it("월 검증 근거(monthCheck)와 사진 지문(photoHash)은 백업·복원 후에도 유지되고, 형식이 틀리면 버린다", () => {
+    const hash = "a".repeat(64);
+    let data = upsertMonth(emptyStore(), makeMonth(SEP, expectedMonth(SEP).days, NOW, { monthCheck: "title", photoHash: hash }));
+    data = upsertMonth(data, makeMonth(OCT, expectedMonth(OCT).days, NOW, { monthCheck: "user-confirmed" }));
+    const back = restoreJSON(exportJSON(data, NOW));
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.data.months[0]).toMatchObject({ monthCheck: "title", photoHash: hash });
+    expect(back.data.months[1].monthCheck).toBe("user-confirmed");
+    const raw = JSON.parse(exportJSON(data, NOW));
+    raw.months[0].monthCheck = "hacked";
+    raw.months[0].photoHash = "<script>";
+    const cleaned = restoreJSON(JSON.stringify(raw));
+    expect(cleaned.ok).toBe(true);
+    if (!cleaned.ok) return;
+    expect(cleaned.data.months[0].monthCheck).toBeUndefined();
+    expect(cleaned.data.months[0].photoHash).toBeUndefined();
   });
 
   it("v1 백업 파일도 복원된다", () => {

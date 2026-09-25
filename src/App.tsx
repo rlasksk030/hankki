@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { IconHistory, IconSettings, IconToday } from "./components/icons";
-import { analyzeMonth, analyzePair } from "./lib/analyzer/analyze";
+import { type MonthCheck, type MonthWarning, analyzeMonth, analyzePair, samePhoto } from "./lib/analyzer/analyze";
 import { loadRaster } from "./lib/analyzer/loadImage";
 import {
   type YearMonth,
@@ -8,6 +8,7 @@ import {
   daysInMonth,
   defaultBaseMonth,
   formatPeriod,
+  formatYearMonth,
   periodDates,
   settlementPeriod,
   toISODate,
@@ -20,8 +21,10 @@ import {
   currentBase,
   defaultPeriodIndex,
   listPeriods,
+  type MonthCheckSource,
   makeMonth,
   monthId,
+  monthWithSamePhoto,
   overAllowanceAfter,
   periodView,
   upsertMonth,
@@ -33,6 +36,7 @@ import { HistoryDetailScreen, HistoryScreen } from "./screens/History";
 import { HomeScreen } from "./screens/Home";
 import {
   AnalyzingScreen,
+  MonthConfirmScreen,
   MonthScreen,
   PhotoErrorScreen,
   PhotosScreen,
@@ -52,7 +56,7 @@ type Tab = "home" | "history" | "settings";
  */
 interface Flow {
   mode: "pair" | "single";
-  step: "month" | "photos" | "analyzing" | "error" | "result" | "review";
+  step: "month" | "photos" | "analyzing" | "error" | "confirm" | "result" | "review";
   /** pair: 기준월, single: 추가/교체할 달 */
   base: YearMonth;
   files: [File | null, File | null];
@@ -60,6 +64,22 @@ interface Flow {
   months: ShiftDay[][];
   swapped: boolean;
   message?: string;
+  /** 자동 통과시키지 않은 이유 (월이 달라 보임, 같은 사진 중복) */
+  warnings: string[];
+  /** 달마다 월 검증 근거 (저장할 때 기록) */
+  checks: MonthCheckSource[];
+  /** 달마다 사진 지문 */
+  fingerprints: string[];
+}
+
+const checkSource = (c: MonthCheck): MonthCheckSource => (c.status === "ok" ? c.by : "user-confirmed");
+
+function warningText(w: MonthWarning, mode: "pair" | "single"): string {
+  const who = mode === "pair" ? `${w.photo}번째 사진: ` : "";
+  return (
+    `${who}선택한 ${formatYearMonth(w.month)}과\n사진 속 근무표가 다른 달처럼 보여요.` +
+    (w.title ? `\n사진 속 제목은 ${w.title}로 보여요.` : "")
+  );
 }
 
 interface Toast {
@@ -128,11 +148,20 @@ export default function App() {
     window.scrollTo(0, 0);
   }, [screenKey]);
 
+  const emptyFlow = { files: [null, null] as [File | null, File | null], months: [], swapped: false, warnings: [], checks: [], fingerprints: [] };
   const startPair = (step: "month" | "photos", base: YearMonth = defaultBaseMonth()) =>
-    setFlow({ mode: "pair", step, base, files: [null, null], months: [], swapped: false });
+    setFlow({ mode: "pair", step, base, ...emptyFlow });
 
-  const startSingle = (ym: YearMonth) =>
-    setFlow({ mode: "single", step: "photos", base: ym, files: [null, null], months: [], swapped: false });
+  const startSingle = (ym: YearMonth) => setFlow({ mode: "single", step: "photos", base: ym, ...emptyFlow });
+
+  /** 같은 사진이 이미 다른 달에 등록되어 있으면 경고 문구 */
+  const duplicateWarnings = (yms: YearMonth[], fingerprints: string[], mode: "pair" | "single") =>
+    yms.flatMap((ym, i) => {
+      const other = monthWithSamePhoto(data, fingerprints[i], ym, samePhoto);
+      if (!other) return [];
+      const who = mode === "pair" ? `${i + 1}번째 사진: ` : "";
+      return [`${who}이 사진은 이미 ${formatYearMonth(other)} 근무표로 등록되어 있어요.\n${formatYearMonth(ym)} 근무표가 맞는지 확인해 주세요.`];
+    });
 
   const runAnalysis = async (current: Flow) => {
     const files = current.mode === "pair" ? current.files : [current.files[0]];
@@ -157,26 +186,51 @@ export default function App() {
       const result = analyzePair(images[0], images[1], current.base);
       await settle();
       if (result.ok) {
-        setFlow({ ...current, step: "result", months: result.months, swapped: result.swapped });
+        const yms = flowMonths(current);
+        const dupIndexes = yms.flatMap((ym, i) => (monthWithSamePhoto(data, result.fingerprints[i], ym, samePhoto) ? [i] : []));
+        const warnings = [
+          ...result.warnings.map((w) => warningText(w, "pair")),
+          ...duplicateWarnings(yms, result.fingerprints, "pair"),
+        ];
+        // 확인이 필요했던 달('그래도 사용')은 사용자 확인으로 기록
+        const checks = result.checks.map((c, i) => (dupIndexes.includes(i) ? "user-confirmed" : checkSource(c)));
+        setFlow({
+          ...current,
+          step: warnings.length ? "confirm" : "result",
+          months: result.months,
+          swapped: result.swapped,
+          warnings,
+          checks,
+          fingerprints: result.fingerprints,
+        });
       } else {
         setFlow({
           ...current,
           step: "error",
           months: result.months ?? [],
-          message: errorMessage(result.kind, result.photo, current.base),
+          message: errorMessage(result.kind, result.photo, current.base, result.title),
         });
       }
     } else {
       const result = analyzeMonth(images[0], current.base);
       await settle();
       if (result.ok) {
-        setFlow({ ...current, step: "review", months: [result.days] });
+        const dup = duplicateWarnings([current.base], [result.fingerprint], "single");
+        const warnings = [...(result.warning ? [warningText(result.warning, "single")] : []), ...dup];
+        setFlow({
+          ...current,
+          step: warnings.length ? "confirm" : "review",
+          months: [result.days],
+          warnings,
+          checks: [warnings.length ? "user-confirmed" : checkSource(result.check)],
+          fingerprints: [result.fingerprint],
+        });
       } else {
         setFlow({
           ...current,
           step: "error",
           months: result.days ? [result.days] : [],
-          message: errorMessage(result.kind, undefined, current.base),
+          message: errorMessage(result.kind, undefined, current.base, result.title),
         });
       }
     }
@@ -186,7 +240,17 @@ export default function App() {
   const saveFlow = (current: Flow) => {
     const yms = flowMonths(current);
     const replacing = yms.filter((ym) => data.months.some((m) => m.id === monthId(ym)));
-    const next: StoreData = yms.reduce((acc, ym, i) => upsertMonth(acc, makeMonth(ym, current.months[i] ?? [])), data);
+    const next: StoreData = yms.reduce(
+      (acc, ym, i) =>
+        upsertMonth(
+          acc,
+          makeMonth(ym, current.months[i] ?? [], new Date(), {
+            monthCheck: current.checks[i] ?? "manual",
+            photoHash: current.fingerprints[i],
+          }),
+        ),
+      data,
+    );
     setData(next);
     setFlow(null);
     setDetailId(null);
@@ -289,8 +353,18 @@ export default function App() {
             onManual={() => {
               const yms = flowMonths(flow);
               const months = yms.map((ym, i) => (flow.months[i]?.length ? flow.months[i] : blankMonth(ym)));
-              setFlow({ ...flow, step: "review", months, swapped: false });
+              // 직접 입력: 사진 판독 결과는 초안일 뿐, 사용자가 확인·수정해서 저장한다
+              setFlow({ ...flow, step: "review", months, swapped: false, checks: yms.map(() => "manual"), fingerprints: [] });
             }}
+          />
+        );
+        break;
+      case "confirm":
+        content = (
+          <MonthConfirmScreen
+            messages={flow.warnings}
+            onRetry={() => setFlow({ ...flow, step: "photos", warnings: [] })}
+            onUseAnyway={() => setFlow({ ...flow, step: flow.mode === "pair" ? "result" : "review", warnings: [] })}
           />
         );
         break;

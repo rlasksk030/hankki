@@ -25,4 +25,6 @@
 npm run typecheck && npm test && npm run test:e2e
 ```
 
+다른 달 사진은 자동 통과시키지 않는다(제목 `YYYY.MM` → 달력 구조 → 확신 없으면 사용자 확인). `e2e/month-check.spec.ts`가 검사한다.
+
 `tests/analyzer.test.ts`의 실제 스크린샷 판독(A6 B11 C6, 근무 23, 간편식 7)은 항상 통과해야 한다.

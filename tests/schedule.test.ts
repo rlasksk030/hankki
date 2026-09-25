@@ -4,6 +4,7 @@ import {
   editShift,
   monthId,
   monthListView,
+  monthWithSamePhoto,
   emptyStore,
   listPeriods,
   makeMonth,
@@ -216,5 +217,16 @@ describe("설정의 등록된 근무표 목록 (기본 4개월 고정, 화면에
     // 창 밖으로 숨겨져도 데이터와 정산은 그대로
     expect(data.months).toHaveLength(6);
     expect(periodView(data, SEP)!.mealAllowance).toBe(7);
+  });
+});
+
+describe("같은 사진 중복 등록 확인", () => {
+  it("다른 달에 같은 사진 지문이 있으면 그 달을 알려 주고, 같은 달 교체는 중복으로 보지 않는다", () => {
+    const hash = "f0".repeat(32);
+    const data = upsertMonth(sepOct(), makeMonth(NOV, expectedMonth(NOV).days, NOW, { photoHash: hash }));
+    const same = (a: string, b: string) => a === b;
+    expect(monthWithSamePhoto(data, hash, DEC, same)).toEqual(NOV);
+    expect(monthWithSamePhoto(data, hash, NOV, same)).toBeNull();
+    expect(monthWithSamePhoto(data, "0f".repeat(32), DEC, same)).toBeNull();
   });
 });

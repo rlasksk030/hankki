@@ -49,3 +49,18 @@ export const EXPECTED_MONTHS: Record<string, Shift[]> = {
   ...(syntheticMonths as unknown as Record<string, Shift[]>),
 };
 delete EXPECTED_MONTHS._comment;
+
+/**
+ * 실제 오늘근무 스크린샷(2026년 11·12월, 2027년 1~5월·8월)을 사람이 직접 읽어 적은 월 전체 정답.
+ * (합성 fixture 패턴인 EXPECTED_MONTHS["2026-11"] 등과 다르다)
+ */
+export const EXPECTED_REAL_MONTHS: Record<string, Shift[]> = {
+  "2026-11": seq([["A", 4], ["OFF", 2], ["B", 6], ["OFF", 2], ["C", 6], ["OFF", 2], ["A", 6], ["OFF", 2]]),
+  "2026-12": seq([["B", 6], ["OFF", 2], ["C", 6], ["OFF", 2], ["A", 6], ["OFF", 2], ["B", 6], ["OFF", 1]]),
+  "2027-01": seq([["OFF", 1], ["C", 6], ["OFF", 2], ["A", 6], ["OFF", 2], ["B", 6], ["OFF", 2], ["C", 6]]),
+  "2027-02": seq([["OFF", 2], ["A", 6], ["OFF", 2], ["B", 6], ["OFF", 2], ["C", 6], ["OFF", 2], ["A", 2]]),
+  "2027-03": seq([["A", 4], ["OFF", 2], ["B", 6], ["OFF", 2], ["C", 6], ["OFF", 2], ["A", 6], ["OFF", 2], ["B", 1]]),
+  "2027-04": seq([["B", 5], ["OFF", 2], ["C", 6], ["OFF", 2], ["A", 6], ["OFF", 2], ["B", 6], ["OFF", 1]]),
+  "2027-05": seq([["OFF", 1], ["C", 6], ["OFF", 2], ["A", 6], ["OFF", 2], ["B", 6], ["OFF", 2], ["C", 6]]),
+  "2027-08": seq([["B", 3], ["OFF", 2], ["C", 6], ["OFF", 2], ["A", 6], ["OFF", 2], ["B", 6], ["OFF", 2], ["C", 2]]),
+};

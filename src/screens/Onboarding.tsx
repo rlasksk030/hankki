@@ -225,6 +225,41 @@ export function PhotosScreen({
   );
 }
 
+// ---------- 월 확인 (자동 통과시키지 않은 사진) ----------
+
+export function MonthConfirmScreen({
+  messages,
+  onRetry,
+  onUseAnyway,
+}: {
+  messages: string[];
+  onRetry: () => void;
+  onUseAnyway: () => void;
+}) {
+  return (
+    <div className="screen">
+      <TopBar onBack={onRetry} />
+      <div className="screen-body error-body" role="alert">
+        <IconAlert size={36} className="error-icon" />
+        {messages.map((m) => (
+          <p key={m} className="error-message">
+            {m}
+          </p>
+        ))}
+        <p className="footnote">그래도 사용하면 직접 확인하고 진행한 것으로 기록돼요.</p>
+      </div>
+      <div className="screen-footer">
+        <button type="button" className="button button-primary" onClick={onRetry}>
+          다시 선택
+        </button>
+        <button type="button" className="button button-plain" onClick={onUseAnyway}>
+          그래도 사용
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ---------- 한 달 추가 / 다시 등록 (사진 1장) ----------
 
 export function SinglePhotoScreen({
@@ -296,7 +331,7 @@ export function AnalyzingScreen() {
 
 export type PhotoErrorKind = AnalysisErrorKind | "read-failed";
 
-export function errorMessage(kind: PhotoErrorKind, photo: 1 | 2 | undefined, base: YearMonth): string {
+export function errorMessage(kind: PhotoErrorKind, photo: 1 | 2 | undefined, base: YearMonth, title?: string): string {
   const which = photo ? `${photo}번째 사진` : "사진";
   const expected = photo === 2 ? addMonths(base, 1) : base;
   switch (kind) {
@@ -307,7 +342,11 @@ export function errorMessage(kind: PhotoErrorKind, photo: 1 | 2 | undefined, bas
     case "cropped":
       return `${which}의 달력이 잘려 있어요.\n오늘근무의 월간 화면 전체가 보이도록\n다시 캡처해 주세요.`;
     case "month-mismatch":
-      return `${which}이 ${formatYearMonth(expected)} 화면이 아닌 것 같아요.\n기준월과 사진을 다시 확인해 주세요.`;
+      return (
+        `${which}이 ${formatYearMonth(expected)} 화면이 아닌 것 같아요.\n` +
+        (title ? `사진 속 제목은 ${title}로 보여요.\n` : "") +
+        "선택한 달과 사진을 다시 확인해 주세요."
+      );
     case "not-calendar":
     case "low-confidence":
     default:
