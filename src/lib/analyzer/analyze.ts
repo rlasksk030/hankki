@@ -167,7 +167,10 @@ export type AnalysisErrorKind =
 
 export interface AnalysisSuccess {
   ok: true;
+  /** 정산기간(기준월 21일 ~ 다음 달 20일) 근무표 */
   shifts: ShiftDay[];
+  /** 두 달 각각의 전체(1일~말일) 근무표 — 월별 근무표로 저장한다 */
+  months: [ShiftDay[], ShiftDay[]];
   /** 사진 순서가 반대여서 바로잡았는지 */
   swapped: boolean;
   diagnostics: MonthReading[];
@@ -180,6 +183,7 @@ export interface AnalysisFailure {
   photo?: 1 | 2;
   /** 읽은 만큼의 근무표. 사용자가 직접 수정해서 쓸 수 있다. */
   shifts?: ShiftDay[];
+  months?: [ShiftDay[], ShiftDay[]];
   diagnostics?: MonthReading[];
 }
 
@@ -222,17 +226,37 @@ export function analyzePair(first: RasterImage, second: RasterImage, base: YearM
   const [baseReading, nextReading] = swapped ? crossed : straight;
   const diagnostics = [baseReading, nextReading];
 
-  const shifts = [
-    ...readDays(baseImg, baseReading, 21, daysInMonth(base.year, base.month)),
-    ...readDays(nextImg, nextReading, 1, 20),
+  // 두 달 모두 1일~말일 전체를 읽는다 (다음 정산에도 쓰도록 월별 근무표로 저장)
+  const months: [ShiftDay[], ShiftDay[]] = [
+    readDays(baseImg, baseReading, 1, daysInMonth(base.year, base.month)),
+    readDays(nextImg, nextReading, 1, daysInMonth(next.year, next.month)),
   ];
+  const shifts = [...months[0].filter((d) => d.date >= toISODate(base.year, base.month, 21)), ...months[1].slice(0, 20)];
 
   const problem =
     checkImage(baseImg, baseReading, swapped ? 2 : 1) ?? checkImage(nextImg, nextReading, swapped ? 1 : 2);
-  if (problem) return { ...problem, shifts, diagnostics };
+  if (problem) return { ...problem, shifts, months, diagnostics };
 
   const unsure = shifts.filter((s) => s.confidence < 0.5).length;
-  if (unsure > shifts.length * 0.25) return { ok: false, kind: "low-confidence", shifts, diagnostics };
+  if (unsure > shifts.length * 0.25) return { ok: false, kind: "low-confidence", shifts, months, diagnostics };
 
-  return { ok: true, shifts, swapped, diagnostics };
+  return { ok: true, shifts, months, swapped, diagnostics };
+}
+
+// ---------- 한 달 추가 ----------
+
+export type MonthAnalysis =
+  | { ok: true; days: ShiftDay[]; diagnostics: MonthReading }
+  | { ok: false; kind: AnalysisErrorKind; days?: ShiftDay[]; diagnostics?: MonthReading };
+
+/** 사진 한 장으로 한 달(1일~말일) 근무표를 읽는다. [다음 달 근무표 추가]·[다시 등록]에 쓴다. */
+export function analyzeMonth(img: RasterImage, ym: YearMonth): MonthAnalysis {
+  if (meanLuminance(img, img.height * 0.15, img.height * 0.85) < 110) return { ok: false, kind: "dark-mode" };
+  const reading = fitMonth(img, ym);
+  const days = readDays(img, reading, 1, daysInMonth(ym.year, ym.month));
+  const problem = checkImage(img, reading, 1);
+  if (problem) return { ok: false, kind: problem.kind, days, diagnostics: reading };
+  const unsure = days.filter((d) => d.confidence < 0.5).length;
+  if (unsure > days.length * 0.25) return { ok: false, kind: "low-confidence", days, diagnostics: reading };
+  return { ok: true, days, diagnostics: reading };
 }

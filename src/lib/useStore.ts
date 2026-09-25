@@ -1,20 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { isWithin, todayISO } from "./dates";
-import type { Settlement } from "./settlement";
-import { type StoreData, loadStore, saveStore } from "./storage";
-
-/** 오늘이 포함된 정산이 따로 있으면 그쪽을 '이번 정산'으로 삼는다. */
-function resolveActive(data: StoreData, today: string): StoreData {
-  const active = data.settlements.find((s) => s.id === data.activeId);
-  if (active && isWithin(today, active.startDate, active.endDate)) return data;
-  const current = data.settlements.find((s) => isWithin(today, s.startDate, s.endDate));
-  if (current && (!active || today > active.endDate)) return { ...data, activeId: current.id };
-  if (!active && data.settlements.length) return { ...data, activeId: data.settlements[0].id };
-  return data;
-}
+import type { ISODate, YearMonth } from "./dates";
+import { type MonthlySchedule, type StoreData, editShift, saveMealUses, upsertMonth } from "./schedule";
+import type { Settlement, Shift } from "./settlement";
+import { loadStore, saveStore } from "./storage";
 
 export function useStore() {
-  const [data, setData] = useState<StoreData>(() => resolveActive(loadStore(), todayISO()));
+  const [data, setData] = useState<StoreData>(() => loadStore());
 
   useEffect(() => {
     saveStore(data);
@@ -22,25 +13,24 @@ export function useStore() {
 
   // 다른 탭/창에서 바뀐 내용 반영
   useEffect(() => {
-    const onStorage = () => setData(resolveActive(loadStore(), todayISO()));
+    const onStorage = () => setData(loadStore());
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  // 자정을 넘기거나 앱을 다시 열었을 때 이번 정산을 다시 고른다
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") setData((d) => resolveActive(d, todayISO()));
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, []);
+  /** 정산 화면에서 수령 기록이 바뀌면 그 정산 기록에만 저장 */
+  const saveMeals = useCallback((view: Settlement) => setData((d) => saveMealUses(d, view)), []);
 
-  const active = data.settlements.find((s) => s.id === data.activeId) ?? null;
+  /** 날짜 하나의 근무 수정 → 그 달을 쓰는 정산이 모두 다시 계산된다 */
+  const setShiftOn = useCallback((date: ISODate, shift: Shift) => setData((d) => editShift(d, date, shift)), []);
 
-  const updateSettlement = useCallback((next: Settlement) => {
-    setData((d) => ({ ...d, settlements: d.settlements.map((s) => (s.id === next.id ? next : s)) }));
-  }, []);
+  /** 월 근무표 추가/교체 (수령 기록은 유지) */
+  const putMonths = useCallback(
+    (months: MonthlySchedule[]) => setData((d) => months.reduce((acc, m) => upsertMonth(acc, m), d)),
+    [],
+  );
 
-  return { data, setData, active, updateSettlement };
+  return { data, setData, saveMeals, setShiftOn, putMonths };
 }
+
+export type { YearMonth };

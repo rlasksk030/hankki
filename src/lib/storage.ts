@@ -1,19 +1,12 @@
-import { type Settlement, type ShiftDay, recompute } from "./settlement";
+import { type MonthlySchedule, SCHEMA_VERSION, type SettlementRecord, type StoreData, emptyStore, makeMonth } from "./schedule";
+import type { MealUse, Shift, ShiftDay } from "./settlement";
+
+export { SCHEMA_VERSION, emptyStore };
+export type { StoreData };
 
 // 모든 데이터는 이 브라우저의 localStorage에만 저장된다. 이미지 원본은 저장하지 않는다.
+// (키 이름은 처음 버전 그대로 두고, 안의 schemaVersion으로 구조 버전을 구분한다)
 export const STORAGE_KEY = "hankki:v1:settlements";
-export const SCHEMA_VERSION = 1;
-
-export interface StoreData {
-  schemaVersion: typeof SCHEMA_VERSION;
-  /** 메인 화면('이번 정산')에 보여줄 정산 id */
-  activeId: string | null;
-  settlements: Settlement[];
-}
-
-export function emptyStore(): StoreData {
-  return { schemaVersion: SCHEMA_VERSION, activeId: null, settlements: [] };
-}
 
 interface StorageLike {
   getItem(key: string): string | null;
@@ -29,18 +22,141 @@ function defaultStorage(): StorageLike | null {
   }
 }
 
-/** 향후 스키마가 바뀌면 여기서 이전 버전을 변환한다. */
-export function migrate(raw: unknown): StoreData {
-  if (!raw || typeof raw !== "object") return emptyStore();
-  const data = raw as Partial<StoreData> & { schemaVersion?: number };
-  if (data.schemaVersion !== SCHEMA_VERSION || !Array.isArray(data.settlements)) return emptyStore();
+// ---------- 형식 검증 ----------
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_RE = /^\d{4}-\d{2}$/;
+const SHIFT_VALUES = new Set<Shift>(["A", "B", "C", "OFF"]);
+
+type Rec = Record<string, unknown>;
+const isObj = (v: unknown): v is Rec => !!v && typeof v === "object" && !Array.isArray(v);
+
+function validDay(d: unknown): boolean {
+  return isObj(d) && typeof d.date === "string" && DATE_RE.test(d.date) && SHIFT_VALUES.has(d.shift as Shift);
+}
+
+function validMeal(m: unknown): boolean {
+  return isObj(m) && typeof m.id === "string" && typeof m.date === "string" && DATE_RE.test(m.date);
+}
+
+function normalizeDay(d: Rec): ShiftDay {
+  return {
+    date: d.date as string,
+    shift: d.shift as Shift,
+    source: d.source === "image" ? "image" : "manual",
+    confidence: typeof d.confidence === "number" ? d.confidence : 1,
+  };
+}
+
+function normalizeMeal(m: Rec): MealUse {
+  return { id: m.id as string, date: m.date as string, createdAt: typeof m.createdAt === "string" ? m.createdAt : "" };
+}
+
+function validV2Month(m: unknown): boolean {
+  return (
+    isObj(m) &&
+    typeof m.id === "string" &&
+    MONTH_RE.test(m.id) &&
+    typeof m.year === "number" &&
+    typeof m.month === "number" &&
+    Array.isArray(m.days) &&
+    m.days.every((d) => validDay(d) && String((d as Rec).date).startsWith(`${m.id}-`))
+  );
+}
+
+function validRecord(r: unknown): boolean {
+  return (
+    isObj(r) &&
+    typeof r.id === "string" &&
+    MONTH_RE.test(r.id) &&
+    typeof r.baseYear === "number" &&
+    typeof r.baseMonth === "number" &&
+    typeof r.startDate === "string" &&
+    DATE_RE.test(r.startDate) &&
+    typeof r.endDate === "string" &&
+    DATE_RE.test(r.endDate) &&
+    Array.isArray(r.mealUses) &&
+    r.mealUses.every(validMeal)
+  );
+}
+
+/** v1 정산(날짜별 근무를 정산마다 가짐) 형식 검증 */
+function validV1Settlement(s: unknown): boolean {
+  return validRecord(s) && Array.isArray((s as Rec).shifts) && ((s as Rec).shifts as unknown[]).every(validDay);
+}
+
+function fromV2(raw: Rec): StoreData {
+  const months: MonthlySchedule[] = (raw.months as Rec[]).map((m) => ({
+    id: m.id as string,
+    year: m.year as number,
+    month: m.month as number,
+    days: (m.days as Rec[]).map(normalizeDay).sort((a, b) => a.date.localeCompare(b.date)),
+    updatedAt: typeof m.updatedAt === "string" ? m.updatedAt : "",
+  }));
+  const settlements: SettlementRecord[] = (raw.settlements as Rec[]).map((r) => ({
+    id: r.id as string,
+    baseYear: r.baseYear as number,
+    baseMonth: r.baseMonth as number,
+    startDate: r.startDate as string,
+    endDate: r.endDate as string,
+    mealUses: (r.mealUses as Rec[]).map(normalizeMeal),
+    createdAt: typeof r.createdAt === "string" ? r.createdAt : "",
+    updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : "",
+  }));
   return {
     schemaVersion: SCHEMA_VERSION,
-    activeId: typeof data.activeId === "string" ? data.activeId : null,
-    settlements: data.settlements.filter(
-      (s): s is Settlement => !!s && typeof s.id === "string" && Array.isArray(s.shifts) && Array.isArray(s.mealUses),
-    ),
+    months: months.sort((a, b) => a.id.localeCompare(b.id)),
+    settlements: settlements.sort((a, b) => b.id.localeCompare(a.id)),
   };
+}
+
+/**
+ * v1 → v2: 정산마다 들고 있던 날짜별 근무를 월별 근무표로 합친다(같은 날짜는 나중에 수정된 정산 값 우선).
+ * 수령 기록은 정산별로 그대로 옮긴다.
+ */
+function fromV1(raw: Rec): StoreData {
+  const v1 = [...(raw.settlements as Rec[])].sort((a, b) =>
+    String(a.updatedAt ?? "").localeCompare(String(b.updatedAt ?? "")),
+  );
+  const days = new Map<string, ShiftDay>();
+  for (const s of v1) for (const d of s.shifts as Rec[]) days.set(d.date as string, normalizeDay(d));
+  const byMonth = new Map<string, ShiftDay[]>();
+  for (const d of days.values()) {
+    const id = d.date.slice(0, 7);
+    byMonth.set(id, [...(byMonth.get(id) ?? []), d]);
+  }
+  const months = [...byMonth.entries()].map(([id, list]) => {
+    const [year, month] = id.split("-").map(Number);
+    return { ...makeMonth({ year, month }, list), updatedAt: "" };
+  });
+  return fromV2({
+    months,
+    settlements: v1.map((s) => ({ ...s, shifts: undefined })),
+  });
+}
+
+export type ParseResult =
+  | { ok: true; data: StoreData }
+  | { ok: false; reason: "invalid" | "wrong-version" };
+
+/** 저장소/백업 공통: 버전을 확인하고 v1은 v2로 옮긴다 */
+export function parseStore(raw: unknown): ParseResult {
+  if (!isObj(raw)) return { ok: false, reason: "invalid" };
+  if (raw.schemaVersion === SCHEMA_VERSION) {
+    if (!Array.isArray(raw.months) || !raw.months.every(validV2Month)) return { ok: false, reason: "invalid" };
+    if (!Array.isArray(raw.settlements) || !raw.settlements.every(validRecord)) return { ok: false, reason: "invalid" };
+    return { ok: true, data: fromV2(raw) };
+  }
+  if (raw.schemaVersion === 1) {
+    if (!Array.isArray(raw.settlements) || !raw.settlements.every(validV1Settlement)) return { ok: false, reason: "invalid" };
+    return { ok: true, data: fromV1(raw) };
+  }
+  return { ok: false, reason: "wrong-version" };
+}
+
+export function migrate(raw: unknown): StoreData {
+  const result = parseStore(raw);
+  return result.ok ? result.data : emptyStore();
 }
 
 export function loadStore(storage: StorageLike | null = defaultStorage()): StoreData {
@@ -71,65 +187,23 @@ export function clearStore(storage: StorageLike | null = defaultStorage()): void
   }
 }
 
-/** 같은 기준월 정산이 있으면 교체하고, 최신 기준월이 위로 오도록 정렬한다. */
-export function upsertSettlement(data: StoreData, s: Settlement): StoreData {
-  const settlements = [...data.settlements.filter((x) => x.id !== s.id), s].sort((a, b) =>
-    b.id.localeCompare(a.id),
-  );
-  return { ...data, settlements };
-}
+// ---------- 백업 / 복원 ----------
 
-export function removeSettlement(data: StoreData, id: string): StoreData {
-  const settlements = data.settlements.filter((s) => s.id !== id);
-  return {
-    ...data,
-    settlements,
-    activeId: data.activeId === id ? (settlements[0]?.id ?? null) : data.activeId,
-  };
-}
+export const BACKUP_APP = "hankki";
 
-/** 백업 파일에는 정산 기록, 날짜별 A/B/C/OFF, 간편식 수령 기록이 모두 들어간다. (이미지 없음) */
+/** 백업 파일: 월별 근무표(날짜별 A/B/C/OFF)와 정산별 간편식 수령 기록. 이미지는 없다. */
 export function exportJSON(data: StoreData, now: Date = new Date()): string {
   return JSON.stringify({ app: BACKUP_APP, exportedAt: now.toISOString(), ...data }, null, 2);
 }
-
-export const BACKUP_APP = "hankki";
 
 export type RestoreResult =
   | { ok: true; data: StoreData }
   | { ok: false; reason: "not-json" | "wrong-version" | "invalid" };
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const SHIFT_VALUES = new Set(["A", "B", "C", "OFF"]);
-
-function isValidSettlement(value: unknown): value is Settlement {
-  if (!value || typeof value !== "object") return false;
-  const s = value as Record<string, unknown>;
-  if (typeof s.id !== "string" || !/^\d{4}-\d{2}$/.test(s.id)) return false;
-  if (typeof s.baseYear !== "number" || typeof s.baseMonth !== "number") return false;
-  if (typeof s.startDate !== "string" || !DATE_RE.test(s.startDate)) return false;
-  if (typeof s.endDate !== "string" || !DATE_RE.test(s.endDate)) return false;
-  if (!Array.isArray(s.shifts) || !Array.isArray(s.mealUses)) return false;
-  const shiftsOk = s.shifts.every(
-    (d) =>
-      !!d &&
-      typeof d === "object" &&
-      typeof (d as Record<string, unknown>).date === "string" &&
-      DATE_RE.test((d as Record<string, string>).date) &&
-      SHIFT_VALUES.has((d as Record<string, string>).shift),
-  );
-  const mealsOk = s.mealUses.every(
-    (m) =>
-      !!m &&
-      typeof m === "object" &&
-      typeof (m as Record<string, unknown>).id === "string" &&
-      typeof (m as Record<string, unknown>).date === "string" &&
-      DATE_RE.test((m as Record<string, string>).date),
-  );
-  return shiftsOk && mealsOk;
-}
-
-/** 백업 파일 복원. schemaVersion과 데이터 형식을 검증하고, 하나라도 어긋나면 복원하지 않는다. */
+/**
+ * 백업 파일 복원. 한끼 백업인지(app), schemaVersion(1 또는 2), 필수 필드·날짜 형식·근무 값·수령 기록 구조를
+ * 검증하고 하나라도 어긋나면 복원하지 않는다. 근무일·간편식 횟수는 파일 값을 쓰지 않고 근무표로 다시 계산한다.
+ */
 export function restoreJSON(text: string): RestoreResult {
   let parsed: unknown;
   try {
@@ -137,36 +211,8 @@ export function restoreJSON(text: string): RestoreResult {
   } catch {
     return { ok: false, reason: "not-json" };
   }
-  if (!parsed || typeof parsed !== "object") return { ok: false, reason: "invalid" };
-  const raw = parsed as Record<string, unknown>;
+  if (!isObj(parsed)) return { ok: false, reason: "invalid" };
   // 한끼가 만든 백업 파일만 받는다 (다른 앱의 JSON 거부)
-  if (raw.app !== BACKUP_APP) return { ok: false, reason: "invalid" };
-  if (raw.schemaVersion !== SCHEMA_VERSION) return { ok: false, reason: "wrong-version" };
-  if (!Array.isArray(raw.settlements) || !raw.settlements.every(isValidSettlement)) {
-    return { ok: false, reason: "invalid" };
-  }
-  // 파생값(근무일·간편식 횟수)은 파일을 믿지 않고 근무표로 다시 계산한다
-  const settlements = (raw.settlements as Settlement[])
-    .map((s) =>
-      recompute(
-        {
-          ...s,
-          shifts: s.shifts.map(
-            (d): ShiftDay => ({
-              date: d.date,
-              shift: d.shift,
-              source: d.source === "image" ? "image" : "manual",
-              confidence: typeof d.confidence === "number" ? d.confidence : 1,
-            }),
-          ),
-        },
-        new Date(s.updatedAt ?? Date.now()),
-      ),
-    )
-    .sort((a, b) => b.id.localeCompare(a.id));
-  const activeId =
-    typeof raw.activeId === "string" && settlements.some((s) => s.id === raw.activeId)
-      ? raw.activeId
-      : (settlements[0]?.id ?? null);
-  return { ok: true, data: { schemaVersion: SCHEMA_VERSION, activeId, settlements } };
+  if (parsed.app !== BACKUP_APP) return { ok: false, reason: "invalid" };
+  return parseStore(parsed);
 }

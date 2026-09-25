@@ -49,7 +49,7 @@ test("빈 저장소에서 잘못된 JSON·다른 버전 백업은 복원하지 �
   const wrongVersion = join(dir, "wrong-version.json");
   const otherApp = join(dir, "other-app.json");
   writeFileSync(broken, '{"app":"hankki","schemaVersion":1,"settlements":[{"id":');
-  writeFileSync(wrongVersion, JSON.stringify({ app: "hankki", schemaVersion: 2, activeId: null, settlements: [] }));
+  writeFileSync(wrongVersion, JSON.stringify({ app: "hankki", schemaVersion: 99, months: [], settlements: [] }));
   writeFileSync(otherApp, JSON.stringify({ todos: [1, 2, 3] }));
   try {
     await page.goto(BASE);
@@ -62,7 +62,7 @@ test("빈 저장소에서 잘못된 JSON·다른 버전 백업은 복원하지 �
     // 여전히 첫 화면(데이터 없음)
     await expect(page.getByRole("button", { name: "근무표 등록하기" })).toBeVisible();
     const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("hankki:v1:settlements") ?? "{}"));
-    expect(stored.settlements ?? []).toEqual([]);
+    expect(stored.months ?? []).toEqual([]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

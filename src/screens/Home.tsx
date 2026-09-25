@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { MealBadge, PeriodCalendar } from "../components/PeriodCalendar";
-import { IconCheck } from "../components/icons";
+import { IconAlert, IconCheck, IconChevronLeft, IconChevronRight } from "../components/icons";
 import { BottomSheet } from "../components/ui";
-import { type ISODate, formatMonthDay, formatPeriod, isWithin, weekdayLabel } from "../lib/dates";
+import { type ISODate, type YearMonth, formatMonthDay, formatPeriod, isWithin, weekdayLabel } from "../lib/dates";
+import { type PeriodEntry, missingLabel, overAllowance } from "../lib/schedule";
 import {
   BASE_DAYS,
   type Settlement,
@@ -99,24 +100,136 @@ export function MealSheet({
 
 // ---------- 화면 G. 메인 '이번 정산' ----------
 
+function periodLabel(entry: PeriodEntry, today: ISODate): string {
+  if (isWithin(today, entry.startDate, entry.endDate)) return "이번 정산";
+  return today > entry.endDate ? "지난 정산" : "다음 정산";
+}
+
+/** ‹ 9.21 — 10.20 › : 정산기간 좌우 이동 */
+function PeriodNav({
+  periods,
+  index,
+  today,
+  onSelect,
+}: {
+  periods: PeriodEntry[];
+  index: number;
+  today: ISODate;
+  onSelect: (index: number) => void;
+}) {
+  const entry = periods[index];
+  const prev = periods[index - 1];
+  const next = periods[index + 1];
+  return (
+    <header className="home-header period-nav">
+      <button
+        type="button"
+        className="icon-button"
+        onClick={() => onSelect(index - 1)}
+        disabled={!prev}
+        aria-label={prev ? `이전 정산 ${formatPeriod(prev.startDate, prev.endDate)}` : "이전 정산 없음"}
+      >
+        <IconChevronLeft />
+      </button>
+      <div className="period-nav-label" aria-live="polite">
+        <p className="eyebrow" data-testid="period-label">
+          {periodLabel(entry, today)}
+        </p>
+        <p className="home-period" data-testid="period">
+          {formatPeriod(entry.startDate, entry.endDate)}
+        </p>
+      </div>
+      <button
+        type="button"
+        className="icon-button"
+        onClick={() => onSelect(index + 1)}
+        disabled={!next}
+        aria-label={next ? `다음 정산 ${formatPeriod(next.startDate, next.endDate)}` : "다음 정산 없음"}
+      >
+        <IconChevronRight />
+      </button>
+    </header>
+  );
+}
+
 export function HomeScreen({
+  periods,
+  index,
+  today,
+  onSelect,
+  onUpdate,
+  onEditSchedule,
+  onAddMonth,
+  toast,
+}: {
+  periods: PeriodEntry[];
+  index: number;
+  today: ISODate;
+  onSelect: (index: number) => void;
+  onUpdate: (s: Settlement) => void;
+  onEditSchedule: (id: string) => void;
+  onAddMonth: (ym: YearMonth) => void;
+  toast: ToastFn;
+}) {
+  const entry = periods[index];
+  if (!entry) return null;
+  const nav = <PeriodNav periods={periods} index={index} today={today} onSelect={onSelect} />;
+
+  if (!entry.status.available) {
+    // 필요한 달의 근무표가 없으면 계산값을 만들지 않고 추가를 안내한다
+    const missing = entry.status.missing;
+    const label = missingLabel(missing, entry.base);
+    return (
+      <div className="screen home">
+        <div className="screen-body home-body">
+          {nav}
+          <section className="home-missing" aria-label="근무표 필요">
+            <p className="home-missing-text">
+              {label} 근무표를 추가하면
+              <br />
+              간편식 횟수를 계산할 수 있어요.
+            </p>
+            <button type="button" className="button button-primary" onClick={() => onAddMonth(missing[0])}>
+              {missing[0].month}월 근무표 추가
+            </button>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <PeriodHome
+      key={entry.id}
+      nav={nav}
+      settlement={entry.status.view}
+      today={today}
+      onUpdate={onUpdate}
+      onEditSchedule={() => onEditSchedule(entry.id)}
+      toast={toast}
+    />
+  );
+}
+
+function PeriodHome({
+  nav,
   settlement,
   today,
   onUpdate,
   onEditSchedule,
-  onNewPeriod,
   toast,
 }: {
+  nav: ReactNode;
   settlement: Settlement;
   today: ISODate;
   onUpdate: (s: Settlement) => void;
   onEditSchedule: () => void;
-  onNewPeriod: () => void;
   toast: ToastFn;
 }) {
   const [selected, setSelected] = useState<ISODate | null>(null);
   const remaining = remainingMeals(settlement);
   const used = settlement.mealUses.length;
+  const over = overAllowance(settlement);
   const receivedToday = hasMealOn(settlement, today);
   const inPeriod = isWithin(today, settlement.startDate, settlement.endDate);
   const ended = today > settlement.endDate;
@@ -153,10 +266,7 @@ export function HomeScreen({
   return (
     <div className="screen home">
       <div className="screen-body home-body">
-        <header className="home-header">
-          <p className="eyebrow">이번 정산</p>
-          <p className="home-period">{formatPeriod(settlement.startDate, settlement.endDate)}</p>
-        </header>
+        {nav}
 
         <section className="home-hero" aria-label="남은 간편식">
           <div className="home-number" key={remaining} data-testid="remaining" aria-live="polite">
@@ -171,12 +281,15 @@ export function HomeScreen({
           </p>
         </section>
 
-        {ended ? (
-          <button type="button" className="notice" onClick={onNewPeriod}>
-            <span>정산기간이 끝났어요. 다음 근무표를 등록해 주세요.</span>
-          </button>
+        {over > 0 ? (
+          <p className="notice notice-warning" role="alert" data-testid="over-warning">
+            <IconAlert size={18} />
+            <span>
+              수령 기록 {used}회가 총 가능 횟수 {settlement.mealAllowance}회보다 {over}회 많아요. 근무표나 수령 기록을 확인해
+              주세요.
+            </span>
+          </p>
         ) : null}
-
         <section className="home-calendar" aria-label="수령 달력">
           <div className="section-head">
             <h2 className="section-title">수령 기록</h2>

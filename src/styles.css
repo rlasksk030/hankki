@@ -1432,3 +1432,74 @@ dd {
     border-right: 1px solid var(--separator);
   }
 }
+
+/* ---------- 정산기간 이동 · 근무표 필요 · 근무표 관리 ---------- */
+
+.period-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 -10px;
+}
+
+.period-nav .icon-button:disabled {
+  color: var(--text-3);
+  opacity: 0.4;
+}
+
+.period-nav-label {
+  flex: 1;
+  text-align: center;
+}
+
+.home-missing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 72px 0 24px;
+  text-align: center;
+}
+
+.home-missing-text {
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.home-missing .button {
+  max-width: 320px;
+}
+
+.month-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.month-summary-period {
+  color: var(--text-2);
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.month-summary-period strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.month-registered {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--received);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.month-add {
+  color: var(--accent);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}

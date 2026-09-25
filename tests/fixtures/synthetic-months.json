@@ -1,0 +1,5 @@
+{
+  "_comment": "합성 fixture(synthetic-2026-11.png, synthetic-2026-12.png)의 근무 패턴. scripts/make-synthetic-months.mjs가 이 값으로 이미지를 만들고, 테스트는 같은 값을 정답으로 쓴다.",
+  "2026-11": ["C","C","OFF","OFF","A","A","A","A","A","A","OFF","OFF","B","B","B","B","B","B","OFF","OFF","C","C","C","C","C","C","OFF","OFF","A","A"],
+  "2026-12": ["A","A","A","A","OFF","OFF","B","B","B","B","B","B","OFF","OFF","C","C","C","C","C","C","OFF","OFF","A","A","A","A","A","A","OFF","OFF","B"]
+}

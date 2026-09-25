@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { IconChevronRight } from "../components/icons";
+import { IconCheck, IconChevronRight } from "../components/icons";
 import { BottomSheet } from "../components/ui";
-import { formatPeriod } from "../lib/dates";
-import type { Settlement } from "../lib/settlement";
+import { type YearMonth, formatYearMonth } from "../lib/dates";
+import { monthId, nextMonthToAdd, registeredMonths } from "../lib/schedule";
 import { type StoreData, exportJSON, restoreJSON } from "../lib/storage";
 
 const APP_VERSION = "1.0.0";
@@ -17,16 +17,14 @@ function isStandalone(): boolean {
 
 export function SettingsScreen({
   data,
-  active,
-  onReanalyze,
+  onAddMonth,
   onNewPeriod,
   onRestore,
   onReset,
   toast,
 }: {
   data: StoreData;
-  active: Settlement | null;
-  onReanalyze: () => void;
+  onAddMonth: (ym: YearMonth) => void;
   onNewPeriod: () => void;
   onRestore: (data: StoreData) => void;
   onReset: () => void;
@@ -34,6 +32,8 @@ export function SettingsScreen({
 }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [pendingRestore, setPendingRestore] = useState<StoreData | null>(null);
+  const months = registeredMonths(data);
+  const next = nextMonthToAdd(data);
 
   const download = () => {
     const blob = new Blob([exportJSON(data)], { type: "application/json" });
@@ -52,22 +52,54 @@ export function SettingsScreen({
       <div className="screen-body">
         <h1 className="large-title">설정</h1>
 
-        <h2 className="group-title">정산</h2>
-        <ul className="list">
-          {active ? (
-            <li>
-              <button type="button" className="list-row" onClick={onReanalyze}>
+        <h2 className="group-title">등록된 근무표</h2>
+        <ul className="list" aria-label="등록된 근무표">
+          {months.map((ym) => (
+            <li key={monthId(ym)}>
+              <button
+                type="button"
+                className="list-row"
+                onClick={() => onAddMonth(ym)}
+                aria-label={`${formatYearMonth(ym)} 근무표 등록됨, 다시 등록`}
+              >
                 <span className="list-label">
-                  현재 근무표 다시 분석
-                  <span className="list-sub">{formatPeriod(active.startDate, active.endDate)} · 수령 기록은 유지돼요</span>
+                  {formatYearMonth(ym)}
+                  <span className="list-sub">다시 등록하면 교체돼요</span>
+                </span>
+                <span className="month-registered">
+                  <IconCheck size={14} strokeWidth={2.4} /> 등록됨
                 </span>
                 <IconChevronRight size={18} className="list-chevron" />
               </button>
             </li>
+          ))}
+          {next ? (
+            <li>
+              <button
+                type="button"
+                className="list-row"
+                onClick={() => onAddMonth(next)}
+                aria-label={`${formatYearMonth(next)} 근무표 추가`}
+              >
+                <span className="list-label">{formatYearMonth(next)}</span>
+                <span className="month-add">추가</span>
+                <IconChevronRight size={18} className="list-chevron" />
+              </button>
+            </li>
           ) : null}
+        </ul>
+        <p className="group-footnote">
+          근무표는 달마다 한 번만 저장되고, 이어진 달이 있으면 21일~다음 달 20일 정산이 자동으로 만들어져요.
+        </p>
+
+        <h2 className="group-title">정산</h2>
+        <ul className="list">
           <li>
             <button type="button" className="list-row" onClick={onNewPeriod}>
-              <span className="list-label">정산기간 새로 만들기</span>
+              <span className="list-label">
+                정산기간 새로 만들기
+                <span className="list-sub">기준월과 다음 달 근무표 2장으로 시작</span>
+              </span>
               <IconChevronRight size={18} className="list-chevron" />
             </button>
           </li>
@@ -76,10 +108,10 @@ export function SettingsScreen({
         <h2 className="group-title">데이터</h2>
         <ul className="list">
           <li>
-            <button type="button" className="list-row" onClick={download} disabled={data.settlements.length === 0}>
+            <button type="button" className="list-row" onClick={download} disabled={data.months.length === 0}>
               <span className="list-label">
                 데이터 백업
-                <span className="list-sub">정산·근무표·수령 기록을 JSON 파일로 저장해요</span>
+                <span className="list-sub">월별 근무표·정산별 수령 기록을 JSON 파일로 저장해요</span>
               </span>
             </button>
           </li>
@@ -139,7 +171,8 @@ export function SettingsScreen({
         onClose={() => setPendingRestore(null)}
       >
         <p className="sheet-note">
-          정산 {pendingRestore?.settlements.length ?? 0}개를 불러와요. 지금 이 기기에 있는 기록은 백업 파일 내용으로 바뀌어요.
+          근무표 {pendingRestore?.months.length ?? 0}개월과 수령 기록을 불러와요. 지금 이 기기에 있는 기록은 백업 파일 내용으로
+          바뀌어요.
         </p>
         <button
           type="button"

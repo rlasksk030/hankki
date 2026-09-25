@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { PeriodCalendar } from "../components/PeriodCalendar";
-import { IconChevronRight } from "../components/icons";
+import { IconAlert, IconChevronRight } from "../components/icons";
 import { ShiftBadge, TopBar } from "../components/ui";
 import { type ISODate, formatMonthDay, formatPeriod, isWithin, weekdayLabel } from "../lib/dates";
+import { overAllowance } from "../lib/schedule";
 import { type Settlement, countShifts, remainingMeals } from "../lib/settlement";
 import { MealSheet, type ToastFn } from "./Home";
 
@@ -17,12 +18,13 @@ function statusOf(s: Settlement, today: ISODate): string {
 
 export function HistoryScreen({
   settlements,
-  activeId,
+  currentId,
   today,
   onOpen,
 }: {
   settlements: Settlement[];
-  activeId: string | null;
+  /** 오늘이 포함된 정산 id */
+  currentId: string | null;
   today: ISODate;
   onOpen: (id: string) => void;
 }) {
@@ -40,7 +42,7 @@ export function HistoryScreen({
                   <div className="history-main">
                     <div className="history-title">
                       {s.baseYear}.{String(s.baseMonth).padStart(2, "0")}
-                      {s.id === activeId ? <span className="tag">이번 정산</span> : null}
+                      {s.id === currentId ? <span className="tag">이번 정산</span> : null}
                     </div>
                     <div className="history-period">{formatPeriod(s.startDate, s.endDate)}</div>
                     <div className="history-stats">
@@ -85,6 +87,15 @@ export function HistoryDetailScreen({
       <TopBar title={`${settlement.baseYear}년 ${settlement.baseMonth}월 정산`} onBack={onBack} />
       <div className="screen-body">
         <p className="eyebrow">{formatPeriod(settlement.startDate, settlement.endDate)}</p>
+        {overAllowance(settlement) > 0 ? (
+          <p className="notice notice-warning" role="alert">
+            <IconAlert size={18} />
+            <span>
+              수령 기록 {settlement.mealUses.length}회가 총 가능 횟수 {settlement.mealAllowance}회보다 많아요. 근무표나 수령
+              기록을 확인해 주세요.
+            </span>
+          </p>
+        ) : null}
         <dl className="detail-grid">
           <div>
             <dt>총 간편식</dt>

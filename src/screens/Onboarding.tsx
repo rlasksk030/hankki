@@ -125,11 +125,15 @@ function PhotoSlot({
   month,
   file,
   onPick,
+  label,
+  ariaLabel,
 }: {
   index: 1 | 2;
   month: YearMonth;
   file: File | null;
   onPick: (file: File | null) => void;
+  label?: string;
+  ariaLabel?: string;
 }) {
   const [preview, setPreview] = useState<string | null>(null);
 
@@ -151,7 +155,7 @@ function PhotoSlot({
         {index}
       </span>
       <div className="photo-info">
-        <div className="photo-month">{index === 1 ? "이번 달 근무표" : "다음 달 근무표"}</div>
+        <div className="photo-month">{label ?? (index === 1 ? "이번 달 근무표" : "다음 달 근무표")}</div>
         <div className="photo-state">
           {formatYearMonth(month)}
           {file ? " · 선택됨" : ""}
@@ -168,7 +172,7 @@ function PhotoSlot({
         className="visually-hidden"
         type="file"
         accept="image/*"
-        aria-label={`${index}번째 사진 선택: ${formatYearMonth(month)}`}
+        aria-label={ariaLabel ?? `${index}번째 사진 선택: ${formatYearMonth(month)}`}
         onChange={(e) => {
           onPick(e.target.files?.[0] ?? null);
           e.target.value = "";
@@ -216,6 +220,57 @@ export function PhotosScreen({
           근무표 분석하기
         </button>
         {!ready ? <p className="footnote">두 장을 선택하면 분석할 수 있어요.</p> : null}
+      </div>
+    </div>
+  );
+}
+
+// ---------- 한 달 추가 / 다시 등록 (사진 1장) ----------
+
+export function SinglePhotoScreen({
+  target,
+  replacing,
+  file,
+  onPick,
+  onAnalyze,
+  onBack,
+}: {
+  target: YearMonth;
+  replacing: boolean;
+  file: File | null;
+  onPick: (file: File | null) => void;
+  onAnalyze: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="screen">
+      <TopBar onBack={onBack} />
+      <div className="screen-body">
+        <h1 className="title">{replacing ? `${target.month}월 근무표 다시 등록` : `${target.month}월 근무표 추가`}</h1>
+        <p className="subtitle">
+          오늘근무에서
+          <br />
+          {formatYearMonth(target)} 근무표를 캡처해 주세요.
+        </p>
+        <div className="photo-list">
+          <PhotoSlot
+            index={1}
+            month={target}
+            file={file}
+            onPick={onPick}
+            label={`${target.month}월 근무표`}
+            ariaLabel={`근무표 사진 선택: ${formatYearMonth(target)}`}
+          />
+        </div>
+        <p className="hint">오늘근무의 월간 달력 화면 전체가 보이도록 캡처하면 가장 정확해요.</p>
+        {replacing ? (
+          <p className="hint">새 사진으로 교체하면 이 달을 쓰는 정산이 다시 계산돼요. 간편식 수령 기록은 그대로 남아요.</p>
+        ) : null}
+      </div>
+      <div className="screen-footer">
+        <button type="button" className="button button-primary" disabled={!file} onClick={onAnalyze}>
+          근무표 분석하기
+        </button>
       </div>
     </div>
   );

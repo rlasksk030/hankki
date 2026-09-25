@@ -1,16 +1,33 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { IconHistory, IconSettings, IconToday } from "./components/icons";
-import { analyzePair } from "./lib/analyzer/analyze";
+import { analyzeMonth, analyzePair } from "./lib/analyzer/analyze";
 import { loadRaster } from "./lib/analyzer/loadImage";
-import { type YearMonth, defaultBaseMonth, periodDates, settlementPeriod, todayISO } from "./lib/dates";
 import {
-  type ShiftDay,
-  createSettlement,
-  setShift,
-  setShiftInList,
-  settlementId,
-} from "./lib/settlement";
-import { clearStore, emptyStore, restoreJSON, upsertSettlement } from "./lib/storage";
+  type YearMonth,
+  addMonths,
+  daysInMonth,
+  defaultBaseMonth,
+  formatPeriod,
+  periodDates,
+  settlementPeriod,
+  toISODate,
+  todayISO,
+} from "./lib/dates";
+import {
+  type StoreData,
+  affectedBases,
+  availableViews,
+  currentBase,
+  defaultPeriodIndex,
+  listPeriods,
+  makeMonth,
+  monthId,
+  overAllowanceAfter,
+  periodView,
+  upsertMonth,
+} from "./lib/schedule";
+import { type ShiftDay, setShiftInList, settlementId } from "./lib/settlement";
+import { clearStore, emptyStore, restoreJSON } from "./lib/storage";
 import { useStore } from "./lib/useStore";
 import { HistoryDetailScreen, HistoryScreen } from "./screens/History";
 import { HomeScreen } from "./screens/Home";
@@ -19,19 +36,28 @@ import {
   MonthScreen,
   PhotoErrorScreen,
   PhotosScreen,
+  SinglePhotoScreen,
   WelcomeScreen,
   errorMessage,
 } from "./screens/Onboarding";
-import { ResultScreen, ScheduleEditor } from "./screens/Review";
+import { MonthSummary, ResultScreen, ScheduleEditor } from "./screens/Review";
 import { SettingsScreen } from "./screens/Settings";
 
 type Tab = "home" | "history" | "settings";
 
+/**
+ * 근무표 등록 흐름
+ * - pair: 처음 등록 / 정산기간 새로 만들기 — 기준월 + 다음 달 사진 2장
+ * - single: [다음 달 근무표 추가]·[다시 등록] — 사진 1장으로 한 달
+ */
 interface Flow {
+  mode: "pair" | "single";
   step: "month" | "photos" | "analyzing" | "error" | "result" | "review";
+  /** pair: 기준월, single: 추가/교체할 달 */
   base: YearMonth;
   files: [File | null, File | null];
-  shifts: ShiftDay[];
+  /** 분석한 월별 근무표 초안 (pair: [기준월, 다음 달], single: [그 달]) */
+  months: ShiftDay[][];
   swapped: boolean;
   message?: string;
 }
@@ -44,10 +70,36 @@ interface Toast {
 
 const nextFrame = () => new Promise((r) => setTimeout(r, 60));
 
+function blankMonth(ym: YearMonth): ShiftDay[] {
+  return Array.from({ length: daysInMonth(ym.year, ym.month) }, (_, i) => ({
+    date: toISODate(ym.year, ym.month, i + 1),
+    shift: "OFF" as const,
+    source: "manual" as const,
+    confidence: 1,
+  }));
+}
+
+function flowMonths(flow: Flow): YearMonth[] {
+  return flow.mode === "pair" ? [flow.base, addMonths(flow.base, 1)] : [flow.base];
+}
+
+/** 초안 월 근무표에서 기준월 정산기간(21일~다음 달 20일)만 모은다 */
+function draftPeriodShifts(flow: Flow): ShiftDay[] {
+  const map = new Map(flow.months.flat().map((d) => [d.date, d]));
+  return periodDates(flow.base).map(
+    (date) => map.get(date) ?? { date, shift: "OFF", source: "manual", confidence: 0 },
+  );
+}
+
+function editDraft(flow: Flow, date: string, shift: ShiftDay["shift"]): Flow {
+  return { ...flow, months: flow.months.map((list) => setShiftInList(list, date, shift)) };
+}
+
 export default function App() {
-  const { data, setData, active, updateSettlement } = useStore();
+  const { data, setData, saveMeals, setShiftOn } = useStore();
   const [tab, setTab] = useState<Tab>("home");
   const [flow, setFlow] = useState<Flow | null>(null);
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -67,65 +119,129 @@ export default function App() {
   const showToast = useCallback((title: string, body?: string) => {
     window.clearTimeout(toastTimer.current);
     setToast({ id: Date.now(), title, body });
-    toastTimer.current = window.setTimeout(() => setToast(null), 2400);
+    toastTimer.current = window.setTimeout(() => setToast(null), 2600);
   }, []);
 
   // 화면이 바뀌면 맨 위로
-  const screenKey = flow ? `flow-${flow.step}` : editingId ? `edit-${editingId}` : detailId ? `detail-${detailId}` : tab;
+  const screenKey = flow ? `flow-${flow.mode}-${flow.step}` : editingId ? `edit-${editingId}` : detailId ? `detail-${detailId}` : tab;
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [screenKey]);
 
-  const startFlow = (step: "month" | "photos", base: YearMonth = defaultBaseMonth()) =>
-    setFlow({ step, base, files: [null, null], shifts: [], swapped: false });
+  const startPair = (step: "month" | "photos", base: YearMonth = defaultBaseMonth()) =>
+    setFlow({ mode: "pair", step, base, files: [null, null], months: [], swapped: false });
+
+  const startSingle = (ym: YearMonth) =>
+    setFlow({ mode: "single", step: "photos", base: ym, files: [null, null], months: [], swapped: false });
 
   const runAnalysis = async (current: Flow) => {
-    const [first, second] = current.files;
-    if (!first || !second) return;
+    const files = current.mode === "pair" ? current.files : [current.files[0]];
+    if (files.some((f) => !f)) return;
     setFlow({ ...current, step: "analyzing" });
     const started = Date.now();
     await nextFrame();
     let images;
     try {
-      images = await Promise.all([loadRaster(first), loadRaster(second)]);
+      images = await Promise.all(files.map((f) => loadRaster(f!)));
     } catch {
       setFlow({ ...current, step: "error", message: errorMessage("read-failed", undefined, current.base) });
       return;
     }
-    const result = analyzePair(images[0], images[1], current.base);
     // 너무 빨리 깜빡이지 않도록 최소 표시 시간
-    const wait = 700 - (Date.now() - started);
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    if (result.ok) {
-      setFlow({ ...current, step: "result", shifts: result.shifts, swapped: result.swapped });
+    const settle = async () => {
+      const wait = 700 - (Date.now() - started);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    };
+
+    if (current.mode === "pair") {
+      const result = analyzePair(images[0], images[1], current.base);
+      await settle();
+      if (result.ok) {
+        setFlow({ ...current, step: "result", months: result.months, swapped: result.swapped });
+      } else {
+        setFlow({
+          ...current,
+          step: "error",
+          months: result.months ?? [],
+          message: errorMessage(result.kind, result.photo, current.base),
+        });
+      }
     } else {
-      setFlow({
-        ...current,
-        step: "error",
-        shifts: result.shifts ?? [],
-        message: errorMessage(result.kind, result.photo, current.base),
-      });
+      const result = analyzeMonth(images[0], current.base);
+      await settle();
+      if (result.ok) {
+        setFlow({ ...current, step: "review", months: [result.days] });
+      } else {
+        setFlow({
+          ...current,
+          step: "error",
+          months: result.days ? [result.days] : [],
+          message: errorMessage(result.kind, undefined, current.base),
+        });
+      }
     }
   };
 
-  const confirmFlow = (current: Flow) => {
-    const existing = data.settlements.find((s) => s.id === settlementId(current.base));
-    const settlement = createSettlement(current.base, current.shifts, new Date(), existing?.mealUses ?? []);
-    setData((d) => ({ ...upsertSettlement(d, settlement), activeId: settlement.id }));
+  /** 초안 월 근무표를 저장하고, 새로 계산 가능해진 정산으로 이동한다 */
+  const saveFlow = (current: Flow) => {
+    const yms = flowMonths(current);
+    const replacing = yms.filter((ym) => data.months.some((m) => m.id === monthId(ym)));
+    const next: StoreData = yms.reduce((acc, ym, i) => upsertMonth(acc, makeMonth(ym, current.months[i] ?? [])), data);
+    setData(next);
     setFlow(null);
     setDetailId(null);
+    setEditingId(null);
     setTab("home");
-    showToast("근무표를 저장했어요", `간편식 ${settlement.mealAllowance}회`);
+
+    // 보여줄 정산: pair는 기준월, single은 이 달로 끝나는 정산 → 없으면 이 달에서 시작하는 정산
+    const candidates = current.mode === "pair" ? [current.base] : affectedBases(current.base);
+    const shown = candidates.map((b) => periodView(next, b)).find(Boolean) ?? null;
+    if (shown) setSelectedPeriodId(shown.id);
+
+    const over = yms.flatMap((ym) => overAllowanceAfter(next, ym));
+    if (over.length > 0) {
+      const v = over[0];
+      showToast("수령 기록을 확인해 주세요", `${formatPeriod(v.startDate, v.endDate)} 수령 ${v.mealUses.length}회 · 총 ${v.mealAllowance}회`);
+    } else if (current.mode === "single" && replacing.length > 0) {
+      showToast(`${current.base.month}월 근무표를 교체했어요`, shown ? `${formatPeriod(shown.startDate, shown.endDate)} 간편식 ${shown.mealAllowance}회` : undefined);
+    } else if (shown) {
+      showToast(
+        current.mode === "pair" ? "근무표를 저장했어요" : `${formatPeriod(shown.startDate, shown.endDate)} 정산을 만들었어요`,
+        `간편식 ${shown.mealAllowance}회`,
+      );
+    } else {
+      showToast(`${current.base.month}월 근무표를 저장했어요`);
+    }
   };
 
-  const hasData = data.settlements.length > 0;
+  const restoreFromFile = async (file: File) => {
+    const result = restoreJSON(await file.text());
+    if (result.ok && result.data.months.length > 0) {
+      setData(result.data);
+      setSelectedPeriodId(null);
+      setTab("home");
+      showToast("데이터를 복원했어요", `근무표 ${result.data.months.length}개월`);
+    } else if (!result.ok && result.reason === "wrong-version") {
+      showToast("복원할 수 없는 백업 파일이에요", "지원하지 않는 버전이에요");
+    } else {
+      showToast("복원할 수 없는 파일이에요", "한끼에서 만든 백업 파일인지 확인해 주세요");
+    }
+  };
+
+  const hasData = data.months.length > 0;
+  const periods = listPeriods(data, today);
+  const selectedIndex = (() => {
+    const i = selectedPeriodId ? periods.findIndex((p) => p.id === selectedPeriodId) : -1;
+    return i >= 0 ? i : defaultPeriodIndex(periods, today);
+  })();
+  const currentId = settlementId(currentBase(today));
 
   let content: ReactNode;
   let showTabs = false;
 
   if (flow) {
-    const { startDate, endDate } = settlementPeriod(flow.base);
     const cancel = () => setFlow(null);
+    const { startDate, endDate } = settlementPeriod(flow.base);
     switch (flow.step) {
       case "month":
         content = (
@@ -138,19 +254,29 @@ export default function App() {
         );
         break;
       case "photos":
-        content = (
-          <PhotosScreen
-            base={flow.base}
-            files={flow.files}
-            onPick={(i, file) => {
-              const files: [File | null, File | null] = [...flow.files];
-              files[i] = file;
-              setFlow({ ...flow, files });
-            }}
-            onAnalyze={() => runAnalysis(flow)}
-            onBack={() => setFlow({ ...flow, step: "month" })}
-          />
-        );
+        content =
+          flow.mode === "pair" ? (
+            <PhotosScreen
+              base={flow.base}
+              files={flow.files}
+              onPick={(i, file) => {
+                const files: [File | null, File | null] = [...flow.files];
+                files[i] = file;
+                setFlow({ ...flow, files });
+              }}
+              onAnalyze={() => runAnalysis(flow)}
+              onBack={() => setFlow({ ...flow, step: "month" })}
+            />
+          ) : (
+            <SinglePhotoScreen
+              target={flow.base}
+              replacing={data.months.some((m) => m.id === monthId(flow.base))}
+              file={flow.files[0]}
+              onPick={(file) => setFlow({ ...flow, files: [file, null] })}
+              onAnalyze={() => runAnalysis(flow)}
+              onBack={cancel}
+            />
+          );
         break;
       case "analyzing":
         content = <AnalyzingScreen />;
@@ -161,13 +287,9 @@ export default function App() {
             message={flow.message ?? ""}
             onRetry={() => setFlow({ ...flow, step: "photos" })}
             onManual={() => {
-              const shifts =
-                flow.shifts.length > 0
-                  ? flow.shifts
-                  : periodDates(flow.base).map(
-                      (date): ShiftDay => ({ date, shift: "OFF", source: "manual", confidence: 1 }),
-                    );
-              setFlow({ ...flow, step: "review", shifts, swapped: false });
+              const yms = flowMonths(flow);
+              const months = yms.map((ym, i) => (flow.months[i]?.length ? flow.months[i] : blankMonth(ym)));
+              setFlow({ ...flow, step: "review", months, swapped: false });
             }}
           />
         );
@@ -177,68 +299,72 @@ export default function App() {
           <ResultScreen
             startDate={startDate}
             endDate={endDate}
-            shifts={flow.shifts}
+            shifts={draftPeriodShifts(flow)}
             swapped={flow.swapped}
             onReview={() => setFlow({ ...flow, step: "review" })}
-            onConfirm={() => confirmFlow(flow)}
+            onConfirm={() => saveFlow(flow)}
             onBack={() => setFlow({ ...flow, step: "photos" })}
           />
         );
         break;
       case "review":
-        content = (
-          <ScheduleEditor
-            startDate={startDate}
-            endDate={endDate}
-            shifts={flow.shifts}
-            onChange={(date, shift) => setFlow({ ...flow, shifts: setShiftInList(flow.shifts, date, shift) })}
-            onDone={() => setFlow({ ...flow, step: "result" })}
-          />
-        );
+        if (flow.mode === "pair") {
+          content = (
+            <ScheduleEditor
+              startDate={startDate}
+              endDate={endDate}
+              shifts={draftPeriodShifts(flow)}
+              onChange={(date, shift) => setFlow(editDraft(flow, date, shift))}
+              onDone={() => setFlow({ ...flow, step: "result" })}
+            />
+          );
+        } else {
+          const ym = flow.base;
+          const days = flow.months[0] ?? [];
+          const preview = upsertMonth(data, makeMonth(ym, days));
+          content = (
+            <ScheduleEditor
+              title={`${ym.month}월 근무표 확인`}
+              startDate={toISODate(ym.year, ym.month, 1)}
+              endDate={toISODate(ym.year, ym.month, daysInMonth(ym.year, ym.month))}
+              shifts={days}
+              summary={<MonthSummary month={ym} days={days} preview={preview} />}
+              onChange={(date, shift) => setFlow(editDraft(flow, date, shift))}
+              onBack={() => setFlow({ ...flow, step: "photos" })}
+              onDone={() => saveFlow(flow)}
+              doneLabel="저장"
+            />
+          );
+        }
         break;
     }
   } else if (!hasData) {
-    content = (
-      <WelcomeScreen
-        onStart={() => startFlow("month")}
-        onRestoreFile={async (file) => {
-          const result = restoreJSON(await file.text());
-          if (result.ok && result.data.settlements.length > 0) {
-            setData(result.data);
-            setTab("home");
-            showToast("데이터를 복원했어요", `정산 ${result.data.settlements.length}개`);
-          } else if (!result.ok && result.reason === "wrong-version") {
-            showToast("복원할 수 없는 백업 파일이에요", "지원하지 않는 버전이에요");
-          } else {
-            showToast("복원할 수 없는 파일이에요", "한끼에서 만든 백업 파일인지 확인해 주세요");
-          }
-        }}
-      />
-    );
+    content = <WelcomeScreen onStart={() => startPair("month")} onRestoreFile={restoreFromFile} />;
   } else if (editingId) {
-    const target = data.settlements.find((s) => s.id === editingId);
-    if (target) {
+    const target = periods.find((p) => p.id === editingId);
+    const view = target?.status.available ? target.status.view : null;
+    if (view) {
       content = (
         <ScheduleEditor
           title="근무표 수정"
-          startDate={target.startDate}
-          endDate={target.endDate}
-          shifts={target.shifts}
-          onChange={(date, shift) => updateSettlement(setShift(target, date, shift))}
+          startDate={view.startDate}
+          endDate={view.endDate}
+          shifts={view.shifts}
+          onChange={setShiftOn}
           onDone={() => setEditingId(null)}
         />
       );
     }
   } else if (detailId) {
-    const target = data.settlements.find((s) => s.id === detailId);
-    if (target) {
+    const view = availableViews(data).find((v) => v.id === detailId);
+    if (view) {
       content = (
         <HistoryDetailScreen
-          settlement={target}
+          settlement={view}
           today={today}
           onBack={() => setDetailId(null)}
-          onUpdate={updateSettlement}
-          onEditSchedule={() => setEditingId(target.id)}
+          onUpdate={saveMeals}
+          onEditSchedule={() => setEditingId(view.id)}
           toast={showToast}
         />
       );
@@ -247,22 +373,24 @@ export default function App() {
 
   if (!content) {
     showTabs = true;
-    if (tab === "home" && active) {
+    if (tab === "home") {
       content = (
         <HomeScreen
-          settlement={active}
+          periods={periods}
+          index={selectedIndex}
           today={today}
-          onUpdate={updateSettlement}
-          onEditSchedule={() => setEditingId(active.id)}
-          onNewPeriod={() => startFlow("month")}
+          onSelect={(i) => setSelectedPeriodId(periods[i]?.id ?? null)}
+          onUpdate={saveMeals}
+          onEditSchedule={(id) => setEditingId(id)}
+          onAddMonth={startSingle}
           toast={showToast}
         />
       );
-    } else if (tab === "history" || (tab === "home" && !active)) {
+    } else if (tab === "history") {
       content = (
         <HistoryScreen
-          settlements={data.settlements}
-          activeId={data.activeId}
+          settlements={availableViews(data)}
+          currentId={currentId}
           today={today}
           onOpen={(id) => setDetailId(id)}
         />
@@ -271,13 +399,16 @@ export default function App() {
       content = (
         <SettingsScreen
           data={data}
-          active={active}
-          onReanalyze={() => active && startFlow("photos", { year: active.baseYear, month: active.baseMonth })}
-          onNewPeriod={() => startFlow("month")}
-          onRestore={(restored) => setData(restored)}
+          onAddMonth={startSingle}
+          onNewPeriod={() => startPair("month")}
+          onRestore={(restored) => {
+            setData(restored);
+            setSelectedPeriodId(null);
+          }}
           onReset={() => {
             clearStore();
             setData(emptyStore());
+            setSelectedPeriodId(null);
             setTab("home");
           }}
           toast={showToast}
@@ -285,6 +416,8 @@ export default function App() {
       );
     }
   }
+
+  const homeHasCta = tab === "home" && !!periods[selectedIndex]?.status.available;
 
   return (
     <div className={`app${showTabs ? " has-tabs" : ""}`}>
@@ -318,7 +451,7 @@ export default function App() {
         </nav>
       ) : null}
 
-      <div className={`toast-layer${showTabs && tab === "home" ? " above-cta" : ""}`} aria-live="polite" role="status">
+      <div className={`toast-layer${showTabs && homeHasCta ? " above-cta" : ""}`} aria-live="polite" role="status">
         {toast ? (
           <div className="toast" key={toast.id}>
             <strong>{toast.title}</strong>

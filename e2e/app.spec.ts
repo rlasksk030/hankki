@@ -196,8 +196,10 @@ test("L. 같은 주소라도 기기마다 데이터가 독립적이고, 사진 �
   await open(pageB);
   await expect(pageB.getByText("근무표만 넣으면")).toBeVisible();
   const storedB = await pageB.evaluate(() => JSON.parse(localStorage.getItem("hankki:v1:settlements") ?? "{}"));
+  expect(storedB.months ?? []).toEqual([]);
   expect(storedB.settlements ?? []).toEqual([]);
   const storedA = await pageA.evaluate(() => JSON.parse(localStorage.getItem("hankki:v1:settlements") ?? "{}"));
+  expect(storedA.months).toHaveLength(2);
   expect(storedA.settlements).toHaveLength(1);
 
   // 모든 요청은 같은 주소의 정적 파일 GET 뿐 (근무표·수령 기록·사진 전송 없음)
@@ -226,8 +228,11 @@ test("백업 → 다른 기기에서 복원", async ({ browser }) => {
   const download = await downloadPromise;
   const path = await download.path();
   const backup = JSON.parse(readFileSync(path, "utf8"));
-  expect(backup.schemaVersion).toBe(1);
-  expect(backup.settlements[0].shifts).toHaveLength(30);
+  expect(backup.schemaVersion).toBe(2);
+  // 월별 근무표(9월 30일, 10월 31일)와 정산별 수령 기록
+  expect(backup.months.map((m: { id: string }) => m.id)).toEqual(["2026-09", "2026-10"]);
+  expect(backup.months[0].days).toHaveLength(30);
+  expect(backup.months[1].days).toHaveLength(31);
   expect(backup.settlements[0].mealUses).toHaveLength(1);
 
   const newPhone = await browser.newContext();

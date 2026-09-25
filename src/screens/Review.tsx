@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { PeriodCalendar } from "../components/PeriodCalendar";
 import { IconAlert, IconChevronRight } from "../components/icons";
 import { BottomSheet, ShiftBadge, TopBar } from "../components/ui";
-import { type ISODate, formatMonthDay, formatPeriod, weekdayLabel } from "../lib/dates";
+import { type ISODate, type YearMonth, formatMonthDay, formatPeriod, weekdayLabel } from "../lib/dates";
+import { type StoreData, affectedBases, periodView } from "../lib/schedule";
 import {
   BASE_DAYS,
   SHIFTS,
@@ -123,6 +124,28 @@ export function ShiftPicker({ value, onSelect }: { value: Shift; onSelect: (shif
   );
 }
 
+/** 한 달 근무표 확인 화면의 요약: 출근일과, 이 달로 계산되는 정산 */
+export function MonthSummary({ month, days, preview }: { month: YearMonth; days: ShiftDay[]; preview: StoreData }) {
+  const views = affectedBases(month).flatMap((b) => {
+    const v = periodView(preview, b);
+    return v ? [v] : [];
+  });
+  return (
+    <div className="month-summary" aria-live="polite">
+      <p className="editor-summary">
+        <span>
+          {month.month}월 출근 <strong>{countWorkDays(days)}일</strong>
+        </span>
+      </p>
+      {views.map((v) => (
+        <p key={v.id} className="month-summary-period" data-testid={`preview-${v.id}`}>
+          {formatPeriod(v.startDate, v.endDate)} · 간편식 <strong>{v.mealAllowance}회</strong>
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export function ScheduleEditor({
   title = "근무표 확인",
   startDate,
@@ -130,6 +153,8 @@ export function ScheduleEditor({
   shifts,
   onChange,
   onDone,
+  onBack,
+  summary,
   doneLabel = "완료",
 }: {
   title?: string;
@@ -138,6 +163,10 @@ export function ScheduleEditor({
   shifts: ShiftDay[];
   onChange: (date: ISODate, shift: Shift) => void;
   onDone: () => void;
+  /** 뒤로 가기 (기본은 완료와 같음) */
+  onBack?: () => void;
+  /** 기본 요약(출근·간편식) 대신 보여줄 내용 */
+  summary?: ReactNode;
   doneLabel?: string;
 }) {
   const [selected, setSelected] = useState<ISODate | null>(null);
@@ -148,17 +177,19 @@ export function ScheduleEditor({
 
   return (
     <div className="screen">
-      <TopBar title={title} onBack={onDone} />
+      <TopBar title={title} onBack={onBack ?? onDone} />
       <div className="screen-body editor">
-        <div className="editor-summary" aria-live="polite">
-          <span>
-            출근 <strong>{workDays}일</strong>
-          </span>
-          <span className="dot-sep" aria-hidden="true" />
-          <span>
-            간편식 <strong data-testid="editor-allowance">{allowance}회</strong>
-          </span>
-        </div>
+        {summary ?? (
+          <div className="editor-summary" aria-live="polite">
+            <span>
+              출근 <strong>{workDays}일</strong>
+            </span>
+            <span className="dot-sep" aria-hidden="true" />
+            <span>
+              간편식 <strong data-testid="editor-allowance">{allowance}회</strong>
+            </span>
+          </div>
+        )}
         <p className="hint">
           {unsure > 0
             ? `점선으로 표시된 ${unsure}일을 확인해 주세요. 날짜를 누르면 바꿀 수 있어요.`
