@@ -1,8 +1,7 @@
-// GitHub Pages Project Site(https://<아이디>.github.io/hankki/)와 같은 하위 경로 조건에서 배포 구조를 검증한다.
+// GitHub Pages Project Site(https://<아이디>.github.io/hankki/) 하위 경로에서 배포 구조를 검증한다.
+// (로컬 흉내 서버 또는 HANKKI_URL로 지정한 실제 공개 주소)
 import { expect, test } from "@playwright/test";
-
-const ORIGIN = "http://localhost:4173";
-const BASE = `${ORIGIN}/hankki/`;
+import { BASE, BASE_PATH, ORIGIN } from "./target";
 
 test("하위 경로에서 첫 페이지·CSS·아이콘·manifest가 404 없이 로드된다", async ({ page }) => {
   const failures: string[] = [];
@@ -85,7 +84,7 @@ test("없는 주소로 들어오거나 새로고침해도 404 화면이 아니�
   await expect(page).toHaveURL(`${BASE}?x=1`);
   await expect(page.getByText("근무표만 넣으면")).toBeVisible();
 
-  await page.goto(`${ORIGIN}/hankki`);
+  await page.goto(`${ORIGIN}${BASE_PATH.replace(/\/$/, "")}`);
   await expect(page).toHaveURL(BASE);
   await page.reload();
   await expect(page.getByText("근무표만 넣으면")).toBeVisible();

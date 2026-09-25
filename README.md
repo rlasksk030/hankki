@@ -76,6 +76,9 @@ npm run test:e2e     # 실제 브라우저(Chromium) E2E, GitHub Pages 하위 �
 | `e2e/pages.spec.ts` | `/hankki/` 하위 경로에서 CSS·아이콘·manifest·서비스 워커 범위·404 복귀 |
 | `e2e/devices.spec.ts` | 브라우저 재실행 후 유지, 잘못된 백업 거부, 다크 모드, iPhone SE, 데스크톱 |
 
+실제 공개 주소 검증: `HANKKI_URL=https://rlasksk030.github.io/hankki/ npm run test:live`
+(배포 workflow의 `verify-live` 단계가 매 배포마다 자동으로 실행합니다)
+
 `npm run test:e2e`는 `scripts/serve-pages.mjs`로 `http://localhost:4173/hankki/`에 GitHub Pages와 같은 조건
 (하위 경로 제공, 없는 주소는 `404.html`을 404 상태로 응답)을 만들어 빌드 결과물을 검증합니다.
 
@@ -93,8 +96,10 @@ npm run test:e2e     # 실제 브라우저(Chromium) E2E, GitHub Pages 하위 �
 `main` 브랜치에 push하면 `.github/workflows/deploy-pages.yml`(GitHub 공식 Pages Actions)이 실행됩니다.
 
 ```
-checkout → setup-node(.nvmrc) → npm ci → typecheck → npm test → Playwright E2E
-→ configure-pages → npm run build → upload-pages-artifact(dist) → deploy-pages
+[build]       checkout → setup-node(.nvmrc) → npm ci → typecheck → npm test → Playwright E2E(로컬 /hankki/)
+              → configure-pages → npm run build → upload-pages-artifact(dist)
+[deploy]      deploy-pages
+[verify-live] 새 버전이 공개 주소에 반영될 때까지 대기 → 실제 공개 주소에서 같은 Playwright E2E 실행
 ```
 
 - 권한: `contents: read`, `pages: write`, `id-token: write`, `concurrency: pages`

@@ -54,6 +54,44 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # 배포된 실제 공개 주소(https://rlasksk030.github.io/hankki/)에서 같은 브라우저 테스트를 다시 실행한다.
+  verify-live:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: 새 버전이 공개 주소에 반영될 때까지 대기
+        env:
+          PAGE_URL: ${{ needs.deploy.outputs.page_url }}
+        run: |
+          npm run build
+          expected=$(grep -o 'assets/index-[^"]*\.js' dist/index.html | head -1)
+          echo "기대하는 번들: $expected"
+          for i in $(seq 1 60); do
+            if curl -fsS "${PAGE_URL}?v=$GITHUB_SHA" | grep -q "$expected"; then
+              echo "반영 확인 ($i)"; exit 0
+            fi
+            sleep 10
+          done
+          echo "10분 안에 새 버전이 반영되지 않았습니다"; exit 1
+
+      - name: 실제 공개 주소 E2E 검증
+        env:
+          HANKKI_URL: ${{ needs.deploy.outputs.page_url }}
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:live

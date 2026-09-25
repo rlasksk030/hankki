@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type Page, chromium, expect, test } from "@playwright/test";
+import { BASE } from "./target";
 
-const BASE = "http://localhost:4173/hankki/";
 const fixture = (name: string) => fileURLToPath(new URL(`../tests/fixtures/${name}`, import.meta.url));
 
 async function registerAndStart(page: Page) {

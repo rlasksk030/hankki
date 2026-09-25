@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { type Page, expect, test } from "@playwright/test";
+import { BASE, BASE_PATH, ORIGIN } from "./target";
 
 const fixture = (name: string) => fileURLToPath(new URL(`../tests/fixtures/${name}`, import.meta.url));
 // 공개 저장소용 비식별 fixture (원본에서 상태 표시줄·칸 라벨만 지운 것)
@@ -39,7 +40,7 @@ test("스크린샷 2장 → 근무 23일 / 간편식 7회 → 수령 기록 → 
     if (r.status() >= 400) failures.push(`${r.status()} ${r.url()}`);
   });
   await open(page);
-  expect(page.url()).toBe("http://localhost:4173/hankki/");
+  expect(page.url()).toBe(BASE);
   await expect(page.getByText("근무표만 넣으면")).toBeVisible();
   await shot(page, "01-welcome");
 
@@ -195,8 +196,8 @@ test("L. 같은 주소라도 기기마다 데이터가 독립적이고, 사진 �
   // 모든 요청은 같은 주소의 정적 파일 GET 뿐 (근무표·수령 기록·사진 전송 없음)
   expect(requests.length).toBeGreaterThan(0);
   for (const r of requests) {
-    expect(new URL(r.url).origin).toBe("http://localhost:4173");
-    expect(new URL(r.url).pathname.startsWith("/hankki/"), r.url).toBe(true);
+    expect(new URL(r.url).origin).toBe(ORIGIN);
+    expect(new URL(r.url).pathname.startsWith(BASE_PATH), r.url).toBe(true);
     expect(r.method).toBe("GET");
     expect(r.body).toBeNull();
   }
