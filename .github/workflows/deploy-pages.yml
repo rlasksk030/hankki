@@ -1,0 +1,59 @@
+# main 브랜치에 push하면 테스트 후 GitHub Pages로 자동 배포한다. (GitHub 공식 Pages Actions 사용)
+# 최초 1회: 저장소 Settings → Pages → Build and deployment → Source를 "GitHub Actions"로 선택.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: 타입 검사 + 단위 테스트 + 실제 스크린샷 판독 테스트
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: 브라우저 테스트 (GitHub Pages 하위 경로 조건)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+      - uses: actions/configure-pages@v5
+
+      - name: 배포용 빌드
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

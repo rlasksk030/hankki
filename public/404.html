@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>한끼</title>
+    <script>
+      // GitHub Pages 하위 경로(/<저장소>/…)에서 없는 주소로 들어오거나 새로고침했을 때 앱 첫 화면으로 보낸다.
+      // (Project Site 주소: https://<아이디>.github.io/<저장소>/ → 첫 경로가 저장소 이름)
+      (function () {
+        var first = location.pathname.split("/").filter(Boolean)[0];
+        location.replace((first ? "/" + first + "/" : "/") + location.search + location.hash);
+      })();
+    </script>
+  </head>
+  <body>
+    <p><a href="./">한끼로 이동</a></p>
+  </body>
+</html>

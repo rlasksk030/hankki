@@ -1,0 +1,7 @@
+node_modules
+dist
+test-results
+playwright-report
+*.tsbuildinfo
+# 원본 오늘근무 스크린샷(개인 정보 포함 가능) — 로컬 회귀 테스트 전용, 절대 커밋하지 않는다
+tests/fixtures/private/
