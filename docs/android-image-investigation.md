@@ -1,5 +1,7 @@
 # Android 캡처 판독 점검 (2026-09-29)
 
+이 문서는 첫 번째 메모리 보강 작업의 기록이다. 이후 화면 배치 의존성을 제거한 변경은 [화면 비율 대응 후속 보고서](adaptive-calendar-layout.md)를 참고한다.
+
 ## 범위와 확인 수준
 
 - 기준: `origin/main`의 `e67925b`, 개발 브랜치 `fix/android-screenshot`.
