@@ -95,13 +95,13 @@ export function inkRatio(img: RasterImage, x0: number, y0: number, x1: number, y
   return total === 0 ? 0 : ink / total;
 }
 
-export function meanLuminance(img: RasterImage, y0: number, y1: number, step = 4): number {
+export function meanLuminance(img: RasterImage, y0: number, y1: number, step = 4, x0 = 0, x1 = img.width): number {
   let sum = 0;
   let n = 0;
   const top = Math.max(0, Math.floor(y0));
   const bottom = Math.min(img.height, Math.ceil(y1));
   for (let y = top; y < bottom; y += step) {
-    for (let x = 0; x < img.width; x += step) {
+    for (let x = Math.max(0, Math.floor(x0)); x < Math.min(img.width, Math.ceil(x1)); x += step) {
       sum += luminanceAt(img, x, y);
       n += 1;
     }

@@ -9,15 +9,8 @@ import {
 import type { Shift, ShiftDay } from "../settlement";
 import { type CalendarGrid, detectGrid } from "./grid";
 import { type RasterImage, countClasses, inkRatio, meanLuminance } from "./pixels";
+import { markerGeometry } from "./markers";
 import { verifyTitle } from "./title";
-
-// ---- 셀 좌표 (모두 이미지 폭/높이 대비 비율로 계산) ----
-
-/** 근무 원: 셀 가로 중앙, 셀 위쪽. 반지름 ≈ 열 폭의 20% */
-const CIRCLE_RADIUS = 0.2;
-const CIRCLE_BOX_HALF_WIDTH = 0.28;
-const CIRCLE_BOX_TOP = 0.25;
-const CIRCLE_BOX_BOTTOM = 0.8;
 
 /** 원이 있다고 볼 최소 면적 비율(원 면적 대비), 확신 구간 */
 const DETECT_THRESHOLD = 0.35;
@@ -37,7 +30,7 @@ export interface CellBox {
 
 export function cellBox(grid: CalendarGrid, row: number, column: number): CellBox {
   return {
-    left: column * grid.columnWidth,
+    left: grid.left + column * grid.columnWidth,
     top: grid.top + row * grid.rowHeight,
     width: grid.columnWidth,
     height: grid.rowHeight,
@@ -56,16 +49,19 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 /** 한 칸의 근무 원 영역을 통째로 보고 A/B/C/휴를 판별한다. */
 export function readCell(img: RasterImage, grid: CalendarGrid, row: number, column: number): CellReading {
   const cell = cellBox(grid, row, column);
-  const cw = grid.columnWidth;
-  const cx = cell.left + cell.width / 2;
+  const geometry = markerGeometry(img, grid);
+  if (!geometry) return { shift: "OFF", confidence: 0, ratios: { yellow: 0, blue: 0, dark: 0, red: 0 } };
+  const cx = cell.left + geometry.x;
+  const cy = cell.top + geometry.y;
+  const radius = geometry.diameter / 2;
   const counts = countClasses(
     img,
-    cx - cw * CIRCLE_BOX_HALF_WIDTH,
-    cell.top + cw * CIRCLE_BOX_TOP,
-    cx + cw * CIRCLE_BOX_HALF_WIDTH,
-    cell.top + Math.min(cw * CIRCLE_BOX_BOTTOM, cell.height * 0.95),
+    cx - radius * 1.25,
+    Math.max(cell.top + 2, cy - radius * 1.25),
+    cx + radius * 1.25,
+    Math.min(cell.top + cell.height - 2, cy + radius * 1.25),
   );
-  const circleArea = Math.PI * (cw * CIRCLE_RADIUS) ** 2;
+  const circleArea = Math.PI * radius ** 2;
   const ratios = {
     yellow: counts.yellow / circleArea,
     blue: counts.blue / circleArea,
@@ -105,6 +101,9 @@ export function layoutFit(img: RasterImage, grid: CalendarGrid, ym: YearMonth): 
   const days = daysInMonth(ym.year, ym.month);
   const needed = calendarRows(ym.year, ym.month);
   const cw = grid.columnWidth;
+  // Date glyph scale follows the observed content, not the width of a stretched cell.
+  const marker = markerGeometry(img, grid);
+  const unit = marker ? Math.min(cw, marker.diameter / 0.4) : cw;
   const totalRows = Math.max(grid.rows, needed);
   // 달마다 다른 곳은 첫 주와 마지막 주(앞뒤 달 날짜가 섞이는 행)뿐이므로 그 두 행만 비교한다.
   // 격자에 보이지 않는 행은 전부 불일치로 센다.
@@ -121,10 +120,10 @@ export function layoutFit(img: RasterImage, grid: CalendarGrid, ym: YearMonth): 
       const cell = cellBox(grid, row, column);
       const ink = inkRatio(
         img,
-        cell.left + cw * 0.03,
-        cell.top + cw * 0.03,
-        cell.left + cw * 0.35,
-        cell.top + Math.min(cw * 0.22, cell.height * 0.3),
+        cell.left + unit * 0.03,
+        cell.top + unit * 0.03,
+        cell.left + unit * 0.35,
+        cell.top + Math.min(unit * 0.22, cell.height * 0.3),
       );
       if (ink > INK_THRESHOLD === inMonth) matched += 1;
     }
@@ -140,12 +139,13 @@ export interface MonthReading {
 
 export function fitMonth(img: RasterImage, ym: YearMonth): MonthReading {
   const grid = detectGrid(img, calendarRows(ym.year, ym.month));
-  return { month: ym, grid, fit: layoutFit(img, grid, ym) };
+  return { month: ym, grid, fit: grid.detected ? layoutFit(img, grid, ym) : 0 };
 }
 
 /** 한 달 달력 이미지에서 지정한 날짜들의 근무를 읽는다. */
 export function readDays(img: RasterImage, reading: MonthReading, fromDay: number, toDay: number): ShiftDay[] {
   const { month, grid } = reading;
+  if (!grid.detected) return [];
   const offset = firstWeekday(month.year, month.month);
   const result: ShiftDay[] = [];
   for (let day = fromDay; day <= toDay; day++) {
@@ -219,8 +219,8 @@ export function photoFingerprint(img: RasterImage, grid: CalendarGrid): string {
     for (let c = 0; c < size; c++) {
       let sum = 0;
       let n = 0;
-      const x0 = Math.floor((c * img.width) / size);
-      const x1 = Math.floor(((c + 1) * img.width) / size);
+      const x0 = Math.floor(grid.left + (c * (grid.right - grid.left)) / size);
+      const x1 = Math.floor(grid.left + ((c + 1) * (grid.right - grid.left)) / size);
       const y0 = Math.floor(grid.top + (r * h) / size);
       const y1 = Math.floor(grid.top + ((r + 1) * h) / size);
       for (let y = y0; y < y1; y += 2) {
@@ -300,9 +300,15 @@ export type AnalysisResult = AnalysisSuccess | AnalysisFailure;
 const SWAP_MARGIN = 0.15;
 const MIN_FIT = 0.8;
 
+function imageIsDark(img: RasterImage, grid: CalendarGrid): boolean {
+  return grid.detected
+    ? meanLuminance(img, grid.top, grid.bottom, 4, grid.left, grid.right) < 110
+    : meanLuminance(img, 0, img.height) < 110;
+}
+
 function checkImage(img: RasterImage, reading: MonthReading, photo: 1 | 2): AnalysisFailure | null {
   const { grid, fit, month } = reading;
-  if (!grid.detected && fit < 0.85) return { ok: false, kind: "not-calendar", photo };
+  if (!grid.detected) return { ok: false, kind: "not-calendar", photo };
   if (grid.detected && grid.rows < calendarRows(month.year, month.month) && fit < MIN_FIT) {
     return { ok: false, kind: "cropped", photo };
   }
@@ -320,7 +326,7 @@ export function analyzePair(first: RasterImage, second: RasterImage, base: YearM
     [first, 1],
     [second, 2],
   ] as const) {
-    if (meanLuminance(img, img.height * 0.15, img.height * 0.85) < 110) {
+    if (imageIsDark(img, detectGrid(img, calendarRows(base.year, base.month)))) {
       return { ok: false, kind: "dark-mode", photo };
     }
   }
@@ -390,8 +396,8 @@ export type MonthAnalysis =
 
 /** 사진 한 장으로 한 달(1일~말일) 근무표를 읽는다. [다음 달 근무표 추가]·[다시 등록]에 쓴다. */
 export function analyzeMonth(img: RasterImage, ym: YearMonth): MonthAnalysis {
-  if (meanLuminance(img, img.height * 0.15, img.height * 0.85) < 110) return { ok: false, kind: "dark-mode" };
   const reading = fitMonth(img, ym);
+  if (imageIsDark(img, reading.grid)) return { ok: false, kind: "dark-mode" };
   const days = readDays(img, reading, 1, daysInMonth(ym.year, ym.month));
   const problem = checkImage(img, reading, 1);
   if (problem) {

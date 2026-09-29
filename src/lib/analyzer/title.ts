@@ -5,15 +5,11 @@
 import type { YearMonth } from "../dates";
 import { DIGIT_TEMPLATES } from "./digitTemplates";
 import type { RasterImage } from "./pixels";
+import { detectGrid } from "./grid";
 
 export const FEATURE_COLS = 5;
 export const FEATURE_ROWS = 7;
 
-/** 이미지 비율 기준 제목 영역 (상태 표시줄 아래 ~ 요일 줄 위, 왼쪽 메뉴 아이콘 오른쪽) */
-const TITLE_TOP = 0.05;
-const TITLE_BOTTOM = 0.115;
-const TITLE_LEFT = 0.1;
-const TITLE_RIGHT = 0.6;
 const DARK = 110;
 
 export interface Glyph {
@@ -34,11 +30,14 @@ function lum(img: RasterImage, x: number, y: number): number {
  * 제목 뒤의 '오늘' 버튼 등은 큰 간격으로 끊는다.
  */
 export function findTitleGlyphs(img: RasterImage): Glyph[] {
-  const { width, height } = img;
-  const y0 = Math.floor(height * TITLE_TOP);
-  const y1 = Math.ceil(height * TITLE_BOTTOM);
-  const x0 = Math.floor(width * TITLE_LEFT);
-  const x1 = Math.ceil(width * TITLE_RIGHT);
+  const grid = detectGrid(img, 5);
+  if (!grid.detected) return [];
+  const width = grid.right - grid.left;
+  // Search the header attached to the actual calendar, not a phone screen ratio.
+  const y0 = Math.max(0, Math.floor(grid.top - grid.columnWidth * 2));
+  const y1 = Math.ceil(grid.top);
+  const x0 = Math.max(0, Math.floor(grid.left));
+  const x1 = Math.min(img.width, Math.ceil(grid.right));
   const bw = x1 - x0;
   const bh = y1 - y0;
 
@@ -83,20 +82,22 @@ export function findTitleGlyphs(img: RasterImage): Glyph[] {
     }
     if (area >= minArea) glyphs.push({ x0: x0 + gx0, x1: x0 + gx1, y0: y0 + gy0, y1: y0 + gy1 });
   }
-  if (glyphs.length === 0) return [];
   glyphs.sort((a, b) => a.x0 - b.x0);
-
-  // 제목은 글자 사이 간격이 좁다. 글자 높이의 60%보다 큰 간격이 나오면 거기서 끊는다.
-  const heights = glyphs.map((g) => g.y1 - g.y0 + 1).sort((a, b) => a - b);
-  const typical = heights[Math.floor(heights.length / 2)];
-  const title: Glyph[] = [glyphs[0]];
-  let right = glyphs[0].x1;
-  for (let i = 1; i < glyphs.length; i++) {
-    if (glyphs[i].x0 - right - 1 > typical * 0.6) break;
-    title.push(glyphs[i]);
-    right = Math.max(right, glyphs[i].x1);
+  const candidates: Glyph[][] = [];
+  for (const first of glyphs) {
+    const h = first.y1 - first.y0 + 1;
+    if (h < Math.max(6, grid.columnWidth * 0.06)) continue;
+    const row = glyphs.filter(g => Math.abs(g.y1 - first.y1) <= h * 0.3);
+    const start = row.indexOf(first);
+    const title = row.slice(start, start + 7);
+    if (title.length !== 7) continue;
+    if (title.some((g, i) => i > 0 && (g.x0 - title[i - 1].x1 > h * 0.8 || g.x0 <= title[i - 1].x1))) continue;
+    if (title.some((g, i) => i === 4 ? (g.y1 - g.y0 + 1 > h * 0.35) :
+      (g.y1 - g.y0 + 1 < h * 0.8 || g.y1 - g.y0 + 1 > h * 1.2))) continue;
+    candidates.push(title);
   }
-  return title;
+  // Multiple plausible month titles must not be resolved by the selected month.
+  return candidates.length === 1 ? candidates[0] : [];
 }
 
 /** 글자 상자를 5×7 칸으로 나눠 칸마다 잉크 밀도(0~1) + 가로세로 비율 */

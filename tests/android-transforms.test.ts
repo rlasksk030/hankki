@@ -11,7 +11,7 @@ for (const format of ['png', 'jpeg', 'webp'] as const) {
       const encoded = await sharp(fixture).resize({ width }).toFormat(format).toBuffer();
       const { data, info } = await sharp(encoded).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
       const result = analyzeMonth({ width: info.width, height: info.height, data }, { year: 2026, month: 9 });
-      expect(result.ok).toBe(true);
+      expect(result.ok, JSON.stringify(result.ok ? {} : {kind: result.kind, diagnostics: result.diagnostics})).toBe(true);
       if (result.ok) expect(result.days.map(d => d.shift)).toEqual(EXPECTED_MONTHS['2026-09']);
     });
   }
@@ -20,7 +20,7 @@ for (const top of [0, 150, 300]) {
   it(`extra system bars top=${top}`, async () => {
     const { data, info } = await sharp(fixture).extend({ top, bottom: 150, background: '#ffffff' }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const result = analyzeMonth({ width: info.width, height: info.height, data }, { year: 2026, month: 9 });
-    expect(result.ok).toBe(true);
+    expect(result.ok, JSON.stringify(result.ok ? {} : {kind: result.kind, diagnostics: result.diagnostics})).toBe(true);
     if (result.ok) expect(result.days.map(d => d.shift)).toEqual(EXPECTED_MONTHS['2026-09']);
   });
 }
