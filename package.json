@@ -11,6 +11,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:analyzer:stress": "vitest run tests/analyzer-stress.test.ts",
     "test:e2e": "playwright test",
     "icons": "node scripts/make-icons.mjs",
     "test:live": "playwright test"

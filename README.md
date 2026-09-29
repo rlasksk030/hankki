@@ -22,7 +22,8 @@
 ## 사용 방법
 
 1. 오늘근무 앱에서 **기준월**과 **다음 달** 월간 화면을 각각 캡처합니다.
-   (예: 9월 정산이면 9월 화면 1장, 10월 화면 1장. 라이트 모드, 월간 달력 화면 전체가 보이게)
+   (예: 9월 정산이면 9월 화면 1장, 10월 화면 1장. 월간 달력 화면 전체가 보이게. 라이트·다크 테마 모두 판독하며,
+   두 장의 테마가 달라도 사진마다 따로 판단합니다)
 2. 한끼에서 **근무표 등록하기 → 기준월 확인 → 사진 2장 선택 → 근무표 분석하기**를 누릅니다.
    - 1번에 기준월, 2번에 다음 달 화면을 넣습니다. 순서가 바뀌어도 자동으로 바로잡습니다.
    - 사진 보관함 선택과 카메라 촬영 모두 됩니다.
@@ -101,6 +102,8 @@ Node 22 (`.nvmrc`)를 사용합니다.
 npm run typecheck
 npm test             # 단위 테스트 + 스크린샷 판독 회귀 테스트 (Vitest)
 npm run test:e2e     # 실제 브라우저(Chromium) E2E, GitHub Pages 하위 경로 조건 (Playwright)
+npx playwright test --browser=webkit e2e/theme-device.spec.ts e2e/image-input.spec.ts   # WebKit(Safari 엔진 계열)
+npm run test:analyzer:stress   # 로컬 전용 대형 판독 매트릭스(기기 8종 × 테마 3종 × 10개월 + 폭 18종, 약 2~3분)
 ```
 
 | 파일 | 내용 |
@@ -109,6 +112,9 @@ npm run test:e2e     # 실제 브라우저(Chromium) E2E, GitHub Pages 하위 �
 | `tests/storage.test.ts` | 저장, v1→v2 이전, 백업/복원 검증, 다중 사용자 데이터 독립(L) |
 | `tests/schedule.test.ts` | 월별 근무표 → 정산 자동 생성(9월+10월 → 11월 필요 → 11월·12월 추가), 중복 저장 없음, 정산별 수령 독립, 월 수정 시 관련 정산만 재계산, 초과 경고 |
 | `tests/analyzer.test.ts` | 실제 오늘근무 스크린샷 판독 → `tests/expected.ts`(사람이 읽어 적은 정답지)와 30일 모두 일치 |
+| `tests/theme-device.test.ts` | 화면 크기 8종(750~1440px, 1320px 계열 포함) 재배치 캡처, 합성 다크 2종, 라이트+다크 혼합, 다크 제목 극성, 6주 달력, 다른 달 거부 |
+| `tests/capture-variants.test.ts` | 배율 50~150%, PNG/JPEG 95·80·60/WebP, 위·아래·좌우 여백, 하단 좌·우·중앙 부분 가림, 밝기·대비·채도, 합성 4주 달력, 흐림·큰 잘림·가로 회전·7열 표·흐린 원 → 거부/확인 필요 |
+| `tests/occluded-boundary.test.ts`, `tests/adaptive-layout.test.ts`, `tests/android-transforms.test.ts` | 떠 있는 버튼 가림, 셀 재배치(폴드·가로·옆 패널), Android 형식·해상도 |
 | `tests/static-only.test.ts` | 서버·외부 전송 코드 없음, GitHub Pages 설정, 원본 사진 gitignore |
 | `e2e/app.spec.ts` | 사진 2장 → 7회 → 수령/중복 방지/취소 → 새로고침 유지, 순서 보정, 수정, 오류, 외부 전송 없음, 백업→복원, 오프라인 |
 | `e2e/pages.spec.ts` | `/hankki/` 하위 경로에서 CSS·아이콘·manifest·서비스 워커 범위·404 복귀 |
@@ -116,6 +122,15 @@ npm run test:e2e     # 실제 브라우저(Chromium) E2E, GitHub Pages 하위 �
 | `e2e/month-check.spec.ts` | 9월 사진을 12월로·11월 사진을 2027년 2월로 선택 시 거부, 같은 사진 두 장 거부, 확신 없을 때 [다시 선택]/[그래도 사용] |
 | `e2e/layout.spec.ts` | 메인 화면 한 화면 구성: iPhone 15 Pro Max(Safari·홈 화면 앱·다크)·15·14는 세로 스크롤 0px, SE는 최소 스크롤, 터치 영역 44px 이상 |
 | `e2e/periods.spec.ts` | 정산기간 좌우 이동, 11월 근무표 필요 안내 → 한 장 추가로 정산 생성, 정산별 수령 독립, 등록된 근무표·교체·초과 경고 |
+| `e2e/theme-device.spec.ts` | 1320px 계열·Android FHD/QHD 캡처, 라이트/다크/혼합, JPEG, 대체 디코더 → 등록·저장·새로고침·설정 표시, 다크 사진 다른 달 거부 |
+| `e2e/image-input.spec.ts`, `e2e/android-real.spec.ts`, `e2e/adaptive-layout.spec.ts` | PNG/JPEG/WebP·MIME·EXIF, 기본/대체 디코더, 떠 있는 버튼, 셀 재배치 |
+
+판독 테스트의 입력 구분 (실제 기기에서 찍은 것이 아닌 것은 이름에 표시합니다):
+- **비식별 실제 화면**: `tests/fixtures/deid-*.png` (iPhone 라이트 테마, 923×2000으로 줄여 비식별)
+- **재배치(transformed)**: 같은 화면을 다른 화면 크기(pt)·배율로 다시 배치. 글자·원은 pt 크기를 유지하고 칸만 넓어지거나
+  좁아집니다(`tests/deviceLayout.ts`). 예: "17 Pro Max resolution class 440pt (1320×2868)"는 **실제 17 Pro Max 원본이 아닙니다.**
+- **합성 다크(synthetic dark)**: 라이트 화면의 밝기 극성만 바꾼 이미지. 실제 오늘근무 다크 팔레트가 아니며, 판독기가
+  "흰 바탕·검은 글자"에 의존하지 않는지 확인하는 용도입니다.
 
 실제 공개 주소 검증: `HANKKI_URL=https://rlasksk030.github.io/hankki/ npm run test:live`
 (배포 workflow의 `verify-live` 단계가 매 배포마다 자동으로 실행합니다)
@@ -152,6 +167,7 @@ npm run test:e2e     # 실제 브라우저(Chromium) E2E, GitHub Pages 하위 �
 
 - 권한: `contents: read`, `pages: write`, `id-token: write`, `concurrency: pages`
 - 테스트가 하나라도 실패하면 배포하지 않습니다. E2E는 Actions의 Ubuntu + Chromium에서 실행합니다.
+- Pull request는 `.github/workflows/pr-check.yml`(배포 없음, `contents: read`)이 같은 테스트와 WebKit 사진 판독 E2E를 실행합니다.
 - **최초 1회 설정**: 저장소 **Settings → Pages → Build and deployment → Source → GitHub Actions**
 
 | 항목 | 처리 |
@@ -168,6 +184,7 @@ npm run test:e2e     # 실제 브라우저(Chromium) E2E, GitHub Pages 하위 �
 
 ```
 ├─ .github/workflows/deploy-pages.yml   # main push → 테스트 → GitHub Pages
+├─ .github/workflows/pr-check.yml       # pull request → 테스트(Chromium + WebKit), 배포 없음
 ├─ index.html                           # iOS 홈 화면·테마 메타 태그
 ├─ vite.config.ts                       # base 경로, 서비스 워커 생성, CSP 메타 태그
 ├─ public/                              # manifest, 아이콘, 404.html, .nojekyll
@@ -185,8 +202,15 @@ npm run test:e2e     # 실제 브라우저(Chromium) E2E, GitHub Pages 하위 �
 
 ## 알려진 제한
 
-- 오늘근무 **라이트 모드 iPhone 세로 스크린샷** 기준입니다. 다크 모드 화면은 인식하지 않고 안내 문구를 보여 줍니다.
-- 실제 스크린샷 검증 범위는 2026년 9월 ~ 2027년 5월, 2027년 8월입니다(5주 · 6주 달력). 4주 달력은 실제 사진으로 확인하지 못했습니다.
+- 판독 기준은 오늘근무 **세로 월간 달력**(7열 격자, A 노랑·B 파랑·C 무채색 원, 빨간 '휴')입니다. 색·밝기는 절대값이 아니라
+  달력 배경과의 대비로 읽으므로 라이트·다크 테마를 같은 방법으로 처리합니다.
+- **다크 테마는 합성 이미지로만 검증했습니다.** 실제 오늘근무 다크 화면 원본으로는 아직 확인하지 못했습니다.
+  C 원이 배경과 거의 구분되지 않는 팔레트라면 휴로 단정하지 않고 '확인 필요'로 표시합니다.
+- 화면 크기는 750~1440px 폭(작은 iPhone, 일반, Pro Max, 1320px 계열, Android HD/FHD/QHD)을 **재배치 이미지**로 검증했습니다.
+  실제 iPhone 17 Pro Max·Galaxy 원본 검증과는 다릅니다(Galaxy 1440×3120 원본 1장은 이전 작업에서 로컬 비공개 테스트로만 확인).
+- 실제 스크린샷 검증 범위는 2026년 9월 ~ 2027년 5월, 2027년 8월입니다(5주 · 6주 달력). 4주 달력은 합성 이미지로만 확인했습니다.
+- 마지막 경계선은 폭의 60% 이상이 보여야 합니다. 떠 있는 버튼·탭 바가 그보다 많이 가리면 보이지 않는 주를 만들어 내지 않고
+  잘린 사진으로 안내합니다.
 - 제목을 읽지 못한 사진에서 선택한 달과 달력 배치가 똑같은 달이 가까이 있으면 자동 통과하지 않고 **[다시 선택] / [그래도 사용]**으로 확인합니다.
 - 기록은 브라우저에만 있으므로 Safari 데이터 삭제 시 사라집니다. iOS는 오래 방문하지 않은 사이트의 데이터를 지울 수 있으니
   주기적으로 백업하세요. (홈 화면에 추가하면 영향이 적습니다)
@@ -200,9 +224,11 @@ npm run test:e2e     # 실제 브라우저(Chromium) E2E, GitHub Pages 하위 �
 | 바뀐 것 | 파일 |
 | --- | --- |
 | 원 색상(A 노랑·B 파랑·C 차콜) | `src/lib/analyzer/pixels.ts` (`classifyPixel`) |
-| 원 크기·위치, 판정 임계값, 확신도 | `src/lib/analyzer/analyze.ts` (`CIRCLE_*`, `*_THRESHOLD`) |
+| 배경·테마(라이트/다크) 추정, 대비 기준 | `src/lib/analyzer/theme.ts` |
+| 원 크기·위치, 판정 임계값, 확신도 | `src/lib/analyzer/markers.ts`, `src/lib/analyzer/analyze.ts` (`*_THRESHOLD`) |
 | 상단 제목(`2026.09`) 위치·글꼴 | `src/lib/analyzer/title.ts`, 기준표 재생성: `tests/gen-digit-templates.test.ts` |
 | 달력 영역·격자선 | `src/lib/analyzer/grid.ts` |
 
+실패 원인 분류(격자·제목·원·월·잘림)는 개발용 `src/lib/analyzer/diagnostics.ts`의 `diagnose()`로 확인할 수 있습니다(앱 화면에는 표시하지 않음).
 새 스크린샷을 `tests/fixtures/private/`에 넣고 `node scripts/deidentify-fixtures.mjs`로 비식별 fixture를 만든 뒤,
 `tests/expected.ts`와 `tests/analyzer.test.ts`에 케이스를 추가해서 조정하세요.
