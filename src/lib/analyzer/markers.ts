@@ -1,5 +1,6 @@
 import type { CalendarGrid } from "./grid";
 import { classifyPixel, type RasterImage } from "./pixels";
+import { gridBackground } from "./theme";
 
 export interface MarkerGeometry { x: number; y: number; diameter: number }
 const NEIGHBORS = [[-1, 0], [1, 0], [0, -1], [0, 1]] as const;
@@ -13,6 +14,7 @@ export function markerGeometry(img: RasterImage, grid: CalendarGrid): MarkerGeom
   const key = [grid.left, grid.right, grid.top, grid.bottom, grid.rows].join(",");
   if (entries.has(key)) return entries.get(key)!;
   const cw = grid.columnWidth, rh = grid.rowHeight;
+  const bg = gridBackground(img, grid);
   const offLabels: MarkerGeometry[] = [];
   const candidates: Array<MarkerGeometry & { colored: boolean }> = [];
   for (let row = 0; row < grid.rows; row++) {
@@ -27,7 +29,7 @@ export function markerGeometry(img: RasterImage, grid: CalendarGrid): MarkerGeom
       let redLeft = width, redRight = -1, redTop = height, redBottom = -1, redCount = 0;
       for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
         const i = ((y + y0) * img.width + x + x0) * 4;
-        const kind = classifyPixel(img.data[i], img.data[i + 1], img.data[i + 2]);
+        const kind = classifyPixel(img.data[i], img.data[i + 1], img.data[i + 2], bg);
         if (kind === "red") {
           redLeft = Math.min(redLeft, x); redRight = Math.max(redRight, x);
           redTop = Math.min(redTop, y); redBottom = Math.max(redBottom, y); redCount++;

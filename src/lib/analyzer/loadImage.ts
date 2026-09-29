@@ -1,5 +1,19 @@
 import type { RasterImage } from "./pixels";
 
+/** Longest analysis width and pixel budget for one decoded screenshot (RGBA ≈ 16 MB at the budget). */
+const MAX_ANALYSIS_WIDTH = 1440;
+const MAX_ANALYSIS_PIXELS = 4_000_000;
+
+/**
+ * Size of the analysis raster. Aspect ratio is kept; ordinary phone screenshots
+ * (e.g. 1179×2556, 1320×2868) stay at their original resolution, larger or scrolling
+ * captures are reduced so mobile browsers never hold several huge RGBA buffers.
+ */
+export function analysisSize(width: number, height: number): { width: number; height: number } {
+  const scale = Math.min(1, MAX_ANALYSIS_WIDTH / width, Math.sqrt(MAX_ANALYSIS_PIXELS / (width * height)));
+  return { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)) };
+}
+
 /**
  * 선택한 사진을 기기 안에서 Canvas로 그려 픽셀을 읽는다.
  * 사진은 어디에도 업로드되지 않고, 분석이 끝나면 메모리에서 사라진다.
@@ -9,11 +23,7 @@ export async function loadRaster(file: Blob): Promise<RasterImage> {
   let canvas: HTMLCanvasElement | undefined;
   try {
     if (!width || !height) throw new Error("empty image");
-    // Keep analysis buffers bounded for high-resolution/scrolling screenshots.
-    // Ordinary iPhone images remain at their original resolution.
-    const scale = Math.min(1, 1440 / width, Math.sqrt(4_000_000 / (width * height)));
-    const targetWidth = Math.max(1, Math.floor(width * scale));
-    const targetHeight = Math.max(1, Math.floor(height * scale));
+    const { width: targetWidth, height: targetHeight } = analysisSize(width, height);
     canvas = document.createElement("canvas");
     canvas.width = targetWidth;
     canvas.height = targetHeight;

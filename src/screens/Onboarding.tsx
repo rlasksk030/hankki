@@ -336,19 +336,21 @@ export function errorMessage(kind: PhotoErrorKind, photo: 1 | 2 | undefined, bas
   const expected = photo === 2 ? addMonths(base, 1) : base;
   switch (kind) {
     case "read-failed":
-      return `${which}을 불러오지 못했어요.\n다른 사진으로 다시 선택해 주세요.`;
-    case "dark-mode":
-      return `${which}이 너무 어두워요.\n오늘근무를 라이트 모드로 두고\n다시 캡처해 주세요.`;
+      return `${which}을 열지 못했어요.\n다른 스크린샷을 선택해 주세요.`;
     case "cropped":
-      return `${which}의 달력이 잘려 있어요.\n오늘근무의 월간 화면 전체가 보이도록\n다시 캡처해 주세요.`;
+      return `${which}의 달력이 잘려 있어요.\n달력의 위쪽 제목부터 마지막 주까지\n모두 보이는 사진을 선택해 주세요.`;
     case "month-mismatch":
       return (
         `${which}이 ${formatYearMonth(expected)} 화면이 아닌 것 같아요.\n` +
         (title ? `사진 속 제목은 ${title}로 보여요.\n` : "") +
         "선택한 달과 사진을 다시 확인해 주세요."
       );
-    case "not-calendar":
     case "low-confidence":
+      return (
+        `${which}에서 일부 근무 표시가 선명하지 않아요.\n` +
+        "[직접 입력하기]에서 읽은 결과를 확인·수정하거나\n다른 사진을 선택해 주세요."
+      );
+    case "not-calendar":
     default:
       return "근무표를 정확하게 읽지 못했어요.\n오늘근무의 월간 화면 전체가 보이도록\n다시 캡처해 주세요.";
   }
