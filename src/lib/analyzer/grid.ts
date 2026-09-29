@@ -108,11 +108,17 @@ function scanGrid(img: RasterImage, expectedRows: number): CalendarGrid {
     const first = lines[i];
     for (let j = i + 1; j < lines.length; j++) {
       const last = lines[j];
-      const span = first.right - first.left;
+      // A floating action/ad button can cover part of the bottom boundary.
+      // Use the wider observed boundary, but require the shorter one to lie
+      // within it and cover most of its width. Never invent a missing row.
+      const full = first.right - first.left >= last.right - last.left ? first : last;
+      const partial = full === first ? last : first;
+      const span = full.right - full.left;
       const edgeTolerance = Math.max(3, span * 0.015);
-      if (last.y <= first.y || Math.abs(last.left - first.left) > edgeTolerance || Math.abs(last.right - first.right) > edgeTolerance) continue;
-      const left = (first.left + last.left) / 2;
-      const right = (first.right + last.right) / 2;
+      if (last.y <= first.y || partial.left < full.left - edgeTolerance ||
+          partial.right > full.right + edgeTolerance || partial.right - partial.left < span * 0.6) continue;
+      const left = full.left;
+      const right = full.right;
       const columnWidth = (right - left) / 7;
       for (let rows = 4; rows <= 6; rows++) {
         const rowHeight = (last.y - first.y) / rows;
