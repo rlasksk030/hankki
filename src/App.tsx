@@ -171,7 +171,9 @@ export default function App() {
     await nextFrame();
     let images;
     try {
-      images = await Promise.all(files.map((f) => loadRaster(f!)));
+      // Decode one at a time so two full-size source bitmaps do not overlap.
+      images = [];
+      for (const file of files) images.push(await loadRaster(file!));
     } catch {
       setFlow({ ...current, step: "error", message: errorMessage("read-failed", undefined, current.base) });
       return;
