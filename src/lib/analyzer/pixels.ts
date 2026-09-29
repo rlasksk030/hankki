@@ -56,8 +56,23 @@ export const LIGHT_BACKGROUND: Background = backgroundOf(255);
  *   다른 달(흐린) 원 ≈ rgb(221,230,250) / rgb(217,217,217) (배경 대비 ≈ 0.15) → 근무로 읽지 않는다.
  * 절대 밝기 대신 '배경과의 대비'와 채도·색상각으로 판별하므로 다크 테마(밝은 C 원·글자)도 같은 기준으로 읽는다.
  */
-export function classifyPixel(r: number, g: number, b: number, bg: Background = LIGHT_BACKGROUND): PixelClass {
-  // Hot path (every cell pixel): same rules as theme.ts colour()/isNeutral()/contrast(), without allocations.
+export function classifyPixel(
+  r: number,
+  g: number,
+  b: number,
+  bg: Background = LIGHT_BACKGROUND,
+  surface?: Background,
+): PixelClass {
+  // The cell's own surface colour (e.g. a tinted "today" fill) is background, whatever its hue.
+  if (
+    surface &&
+    Math.abs(r - surface.rgb[0]) <= SURFACE_TOLERANCE &&
+    Math.abs(g - surface.rgb[1]) <= SURFACE_TOLERANCE &&
+    Math.abs(b - surface.rgb[2]) <= SURFACE_TOLERANCE
+  ) {
+    return "none";
+  }
+  // Hot path (every cell pixel): same rules as colour()/isNeutral()/contrast(), without allocations.
   const max = r > g ? (r > b ? r : b) : g > b ? g : b;
   const min = r < g ? (r < b ? r : b) : g < b ? g : b;
   const chroma = max - min;
@@ -78,10 +93,16 @@ export function classifyPixel(r: number, g: number, b: number, bg: Background = 
   return "none";
 }
 
-/** 무채색 표시(C 원)로 볼 최소 배경 대비. 흐린 앞뒤 달 원(≈0.15)과 C 원(≈0.74)의 사이 */
-const MARKER_INK_CONTRAST = 0.45;
+/**
+ * 무채색 표시(C 원)로 볼 최소 배경 대비.
+ * 오늘근무는 원 색을 테마와 관계없이 그대로 쓴다: C 원 rgb(66,66,66)은 흰 바탕에서 대비 0.74, 검은 바탕에서 0.26.
+ * 앞뒤 달의 흐린 원은 흰 바탕 ≈0.15, 검은 바탕 ≈0.05(C)·0.19(B)이며 이번 달 칸에는 나오지 않는다.
+ */
+const MARKER_INK_CONTRAST = 0.2;
 /** 배경과 '무언가 다르다'고 볼 최소 대비 (압축 잡음·번짐보다 크고 흐린 표시보다 작다) */
-const FAINT_INK_CONTRAST = 0.15;
+const FAINT_INK_CONTRAST = 0.1;
+/** 칸 바탕색과 채널별 차이가 이 이하이면 바탕으로 본다 (압축 잡음·강조 배경의 얼룩 허용) */
+const SURFACE_TOLERANCE = 24;
 /** 색이 있는 표시로 볼 최소 채도(RGB 최대−최소). 흐린 파랑 원(≈29)은 제외 */
 const COLOUR_MIN_CHROMA = 60;
 /** 노랑 A 원은 채도가 매우 높다(≈250). 연한 노랑 강조·경계 번짐은 제외 */
@@ -109,6 +130,7 @@ export function countClasses(
   x1: number,
   y1: number,
   bg: Background = LIGHT_BACKGROUND,
+  surface?: Background,
 ): ClassCounts {
   const counts: ClassCounts = { yellow: 0, blue: 0, dark: 0, faint: 0, red: 0, total: 0 };
   const left = Math.max(0, Math.floor(x0));
@@ -119,7 +141,7 @@ export function countClasses(
   for (let y = top; y < bottom; y++) {
     for (let x = left; x < right; x++) {
       const i = (y * width + x) * 4;
-      const c = classifyPixel(data[i], data[i + 1], data[i + 2], bg);
+      const c = classifyPixel(data[i], data[i + 1], data[i + 2], bg, surface);
       if (c !== "none") counts[c] += 1;
       counts.total += 1;
     }

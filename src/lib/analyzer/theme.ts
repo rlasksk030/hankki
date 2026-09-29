@@ -15,6 +15,8 @@ export interface Background {
   polarity: Polarity;
   /** Largest luminance distance possible from the background (towards black or white). */
   range: number;
+  /** Typical colour of the surface (a highlighted cell can be tinted, e.g. navy "today" fill). */
+  rgb: [number, number, number];
 }
 
 const HISTOGRAM_BINS = 32;
@@ -23,11 +25,12 @@ const BACKGROUND_SAMPLES = 96;
 
 const luma = (r: number, g: number, b: number) => (r + g + b) / 3;
 
-export function backgroundOf(luminance: number): Background {
+export function backgroundOf(luminance: number, rgb: [number, number, number] = [luminance, luminance, luminance]): Background {
   return {
     luminance,
     polarity: luminance >= 128 ? "light" : "dark",
     range: Math.max(24, Math.max(luminance, 255 - luminance)),
+    rgb,
   };
 }
 
@@ -43,6 +46,7 @@ export function estimateBackground(img: RasterImage, x0: number, y0: number, x1:
   if (right <= left || bottom <= top) return backgroundOf(255);
   const bins = new Array<number>(HISTOGRAM_BINS).fill(0);
   const sums = new Array<number>(HISTOGRAM_BINS).fill(0);
+  const rgbSums = Array.from({ length: HISTOGRAM_BINS }, () => [0, 0, 0]);
   const stepX = Math.max(1, (right - left) / BACKGROUND_SAMPLES);
   const stepY = Math.max(1, (bottom - top) / BACKGROUND_SAMPLES);
   for (let y = top; y < bottom; y += stepY) {
@@ -52,11 +56,16 @@ export function estimateBackground(img: RasterImage, x0: number, y0: number, x1:
       const bin = Math.min(HISTOGRAM_BINS - 1, Math.floor((l / 256) * HISTOGRAM_BINS));
       bins[bin] += 1;
       sums[bin] += l;
+      rgbSums[bin][0] += img.data[i];
+      rgbSums[bin][1] += img.data[i + 1];
+      rgbSums[bin][2] += img.data[i + 2];
     }
   }
   let best = 0;
   for (let b = 1; b < HISTOGRAM_BINS; b++) if (bins[b] > bins[best]) best = b;
-  return backgroundOf(bins[best] ? sums[best] / bins[best] : 255);
+  if (!bins[best]) return backgroundOf(255);
+  const n = bins[best];
+  return backgroundOf(sums[best] / n, [rgbSums[best][0] / n, rgbSums[best][1] / n, rgbSums[best][2] / n]);
 }
 
 /** 0 = same as background, 1 = as far from it as possible (black on white, white on black). */
@@ -78,6 +87,29 @@ export function gridBackground(img: RasterImage, grid: { left: number; right: nu
   let bg = entries.get(key);
   if (!bg) {
     bg = estimateBackground(img, grid.left, grid.top, grid.right, grid.bottom);
+    entries.set(key, bg);
+  }
+  return bg;
+}
+
+const cellSurfaceCache = new WeakMap<object, Map<string, Background>>();
+
+/**
+ * The cell's own surface. Normally the calendar background; a highlighted cell (today) has a
+ * tinted fill that must count as background, never as a marker colour.
+ */
+export function cellSurface(img: RasterImage, left: number, top: number, width: number, height: number): Background {
+  let entries = cellSurfaceCache.get(img.data);
+  if (!entries) {
+    entries = new Map();
+    cellSurfaceCache.set(img.data, entries);
+  }
+  const key = [left, top, width, height].map((n) => Math.round(n)).join(",");
+  let bg = entries.get(key);
+  if (!bg) {
+    // Inset past the grid lines and highlight borders.
+    const inset = Math.max(2, Math.min(width, height) * 0.06);
+    bg = estimateBackground(img, left + inset, top + inset, left + width - inset, top + height - inset);
     entries.set(key, bg);
   }
   return bg;

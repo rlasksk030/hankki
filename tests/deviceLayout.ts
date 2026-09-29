@@ -92,6 +92,22 @@ export async function renderDeviceCapture(
   const srcRh = (SRC.gridBottom - SRC.gridTop) / sourceRows;
   const pieces: OverlayOptions[] = [];
   const place = (input: Buffer, left: number, top: number) => pieces.push({ input, left: Math.round(left), top: Math.round(top) });
+  // Each cell first gets its source cell's surface colour: a highlighted "today" cell is filled
+  // edge to edge in the real app (both themes), not only behind the copied glyph pieces.
+  const raw = await sharp(source).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const surfaceOf = ([sr, sc]: [number, number]) => {
+    const counts = new Map<string, number>();
+    const x0 = Math.round(sc * SRC_CELL_WIDTH + 8), y0 = Math.round(SRC.gridTop + sr * srcRh + 8);
+    for (let y = y0; y < y0 + srcRh - 16; y += 3) {
+      for (let x = x0; x < x0 + SRC_CELL_WIDTH - 16; x += 3) {
+        const i = (y * raw.info.width + x) * 4;
+        const key = `${raw.data[i]},${raw.data[i + 1]},${raw.data[i + 2]}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  };
+  const fills: string[] = [];
 
   // Header: menu + title anchored left, action icons anchored right.
   if (synthetic) {
@@ -115,6 +131,8 @@ export async function renderDeviceCapture(
       const at = ([sr, sc]: [number, number]) => ({ sx: sc * SRC_CELL_WIDTH, sy: SRC.gridTop + sr * srcRh });
       const tx = c * cw;
       const ty = gridTop + r * rh;
+      const surface = surfaceOf(from.marker);
+      if (surface !== "255,255,255") fills.push(`<rect x="${tx}" y="${ty}" width="${cw}" height="${rh}" fill="rgb(${surface})"/>`);
       const d = at(from.date);
       place(await piece(source, d.sx + SRC_DATE.x, d.sy + SRC_DATE.y, SRC_DATE.width, SRC_DATE.height, k), tx + SRC_DATE.x * k + 1, ty + SRC_DATE.y * k + 1);
       const half = SRC_MARKER.box / 2;
@@ -133,6 +151,7 @@ export async function renderDeviceCapture(
     const cx = 110 + i * 175.8; // five tabs spread evenly across the screen width
     place(await piece(source, cx - 40, 1835, 80, 75, k), ((i + 0.5) * W) / 5 - 40 * k, footerTop + (1835 - SRC.gridBottom) * k);
   }
+  if (fills.length) pieces.unshift({ input: Buffer.from(`<svg width="${W}" height="${H}">${fills.join("")}</svg>`), left: 0, top: 0 });
   const lw = device.lineWidth ?? 1;
   const lines: string[] = [];
   for (let r = 0; r <= rows; r++) lines.push(`<rect x="0" y="${Math.round(gridTop + r * rh) - Math.floor(lw / 2)}" width="${W}" height="${lw}"/>`);

@@ -6,7 +6,8 @@ import { existsSync } from "node:fs";
 import sharp from "sharp";
 
 const dir = new URL("../tests/fixtures/", import.meta.url);
-// [원본, 결과, 연, 월] — 행 수(5주/6주)는 달력으로 계산한다
+// [원본, 결과, 연, 월, 가림 색] — 행 수(5주/6주)는 달력으로 계산한다.
+// 가림 색은 화면 바탕색과 같게 한다 (라이트 테마 흰색, 다크 테마 검은색).
 const pairs = [
   ["private/oneulgeunmu-2026-09.webp", "deid-2026-09.png", 2026, 9],
   ["private/oneulgeunmu-2026-10.webp", "deid-2026-10.png", 2026, 10],
@@ -18,6 +19,10 @@ const pairs = [
   ["private/oneulgeunmu-2027-04.webp", "deid-2027-04.png", 2027, 4],
   ["private/oneulgeunmu-2027-05.webp", "deid-2027-05.png", 2027, 5],
   ["private/oneulgeunmu-2027-08.webp", "deid-2027-08.png", 2027, 8],
+  // 실제 다크 테마 화면 (iPhone, 1188×2576)
+  ["private/dark-2026-09.png", "deid-dark-2026-09.png", 2026, 9, "#000"],
+  ["private/dark-2026-10.png", "deid-dark-2026-10.png", 2026, 10, "#000"],
+  ["private/dark-2026-12.png", "deid-dark-2026-12.png", 2026, 12, "#000"],
 ];
 
 const calendarRows = (year, month) =>
@@ -26,7 +31,7 @@ const calendarRows = (year, month) =>
 // 오늘근무 iPhone 세로 스크린샷의 달력 위치(이미지 비율)
 const TOP = 0.132;
 const BOTTOM = 0.8765;
-for (const [src, out, year, month] of pairs) {
+for (const [src, out, year, month, fill = "#fff"] of pairs) {
   const ROWS = calendarRows(year, month);
   const input = new URL(src, dir).pathname;
   if (!existsSync(input)) {
@@ -37,15 +42,15 @@ for (const [src, out, year, month] of pairs) {
   const cw = w / 7;
   const top = h * TOP;
   const rowH = (h * BOTTOM - top) / ROWS;
-  const rects = [`<rect x="0" y="0" width="${w}" height="${Math.round(h * 0.06)}" fill="#fff"/>`];
+  const rects = [`<rect x="0" y="0" width="${w}" height="${Math.round(h * 0.06)}" fill="${fill}"/>`];
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < 7; c++) {
       const x = c * cw + cw * 0.28;
       const y = top + r * rowH + 3;
-      rects.push(`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(cw * 0.72 - 3).toFixed(1)}" height="${(cw * 0.24 - 3).toFixed(1)}" fill="#fff"/>`);
+      rects.push(`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(cw * 0.72 - 3).toFixed(1)}" height="${(cw * 0.24 - 3).toFixed(1)}" fill="${fill}"/>`);
     }
   }
   const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${rects.join("")}</svg>`);
-  await sharp(input).flatten({ background: "#fff" }).composite([{ input: mask }]).png().toFile(new URL(out, dir).pathname);
+  await sharp(input).flatten({ background: fill }).composite([{ input: mask }]).png().toFile(new URL(out, dir).pathname);
   console.log(`만듦: ${out}`);
 }

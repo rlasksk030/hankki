@@ -113,6 +113,7 @@ npm run test:analyzer:stress   # 로컬 전용 대형 판독 매트릭스(기기
 | `tests/schedule.test.ts` | 월별 근무표 → 정산 자동 생성(9월+10월 → 11월 필요 → 11월·12월 추가), 중복 저장 없음, 정산별 수령 독립, 월 수정 시 관련 정산만 재계산, 초과 경고 |
 | `tests/analyzer.test.ts` | 실제 오늘근무 스크린샷 판독 → `tests/expected.ts`(사람이 읽어 적은 정답지)와 30일 모두 일치 |
 | `tests/theme-device.test.ts` | 화면 크기 8종(750~1440px, 1320px 계열 포함) 재배치 캡처, 합성 다크 2종, 라이트+다크 혼합, 다크 제목 극성, 6주 달력, 다른 달 거부 |
+| `tests/dark-real.test.ts` | **실제 오늘근무 다크 화면**(iPhone, 2026.09·10·12) 비식별본 + 로컬 원본: 날짜별 정답, 9·10월 7회, 오늘 칸 남색 강조, 첫 주 강조 칸, 다른 달 거부, 크기·JPEG·WebP, 라이트+다크 혼합 |
 | `tests/capture-variants.test.ts` | 배율 50~150%, PNG/JPEG 95·80·60/WebP, 위·아래·좌우 여백, 하단 좌·우·중앙 부분 가림, 밝기·대비·채도, 합성 4주 달력, 흐림·큰 잘림·가로 회전·7열 표·흐린 원 → 거부/확인 필요 |
 | `tests/occluded-boundary.test.ts`, `tests/adaptive-layout.test.ts`, `tests/android-transforms.test.ts` | 떠 있는 버튼 가림, 셀 재배치(폴드·가로·옆 패널), Android 형식·해상도 |
 | `tests/static-only.test.ts` | 서버·외부 전송 코드 없음, GitHub Pages 설정, 원본 사진 gitignore |
@@ -122,15 +123,16 @@ npm run test:analyzer:stress   # 로컬 전용 대형 판독 매트릭스(기기
 | `e2e/month-check.spec.ts` | 9월 사진을 12월로·11월 사진을 2027년 2월로 선택 시 거부, 같은 사진 두 장 거부, 확신 없을 때 [다시 선택]/[그래도 사용] |
 | `e2e/layout.spec.ts` | 메인 화면 한 화면 구성: iPhone 15 Pro Max(Safari·홈 화면 앱·다크)·15·14는 세로 스크롤 0px, SE는 최소 스크롤, 터치 영역 44px 이상 |
 | `e2e/periods.spec.ts` | 정산기간 좌우 이동, 11월 근무표 필요 안내 → 한 장 추가로 정산 생성, 정산별 수령 독립, 등록된 근무표·교체·초과 경고 |
-| `e2e/theme-device.spec.ts` | 1320px 계열·Android FHD/QHD 캡처, 라이트/다크/혼합, JPEG, 대체 디코더 → 등록·저장·새로고침·설정 표시, 다크 사진 다른 달 거부 |
+| `e2e/theme-device.spec.ts` | 실제 다크 화면(비식별)·1320px 계열·Android FHD/QHD 캡처, 라이트/다크/혼합, JPEG, 대체 디코더 → 등록·저장·새로고침·설정 표시, 다크 사진 다른 달 거부 |
 | `e2e/image-input.spec.ts`, `e2e/android-real.spec.ts`, `e2e/adaptive-layout.spec.ts` | PNG/JPEG/WebP·MIME·EXIF, 기본/대체 디코더, 떠 있는 버튼, 셀 재배치 |
 
 판독 테스트의 입력 구분 (실제 기기에서 찍은 것이 아닌 것은 이름에 표시합니다):
-- **비식별 실제 화면**: `tests/fixtures/deid-*.png` (iPhone 라이트 테마, 923×2000으로 줄여 비식별)
+- **비식별 실제 화면**: `tests/fixtures/deid-2026-*.png`, `deid-2027-*.png` (iPhone 라이트 테마, 923×2000),
+  `deid-dark-2026-09/10/12.png` (iPhone **실제 다크 테마**, 1188×2576). 상태 표시줄과 칸 라벨만 가렸습니다.
 - **재배치(transformed)**: 같은 화면을 다른 화면 크기(pt)·배율로 다시 배치. 글자·원은 pt 크기를 유지하고 칸만 넓어지거나
   좁아집니다(`tests/deviceLayout.ts`). 예: "17 Pro Max resolution class 440pt (1320×2868)"는 **실제 17 Pro Max 원본이 아닙니다.**
-- **합성 다크(synthetic dark)**: 라이트 화면의 밝기 극성만 바꾼 이미지. 실제 오늘근무 다크 팔레트가 아니며, 판독기가
-  "흰 바탕·검은 글자"에 의존하지 않는지 확인하는 용도입니다.
+- **합성 다크(synthetic dark)**: 라이트 화면의 밝기 극성만 바꾼 이미지. 실제 팔레트와 다르며, 판독기가
+  "흰 바탕·검은 글자"에 의존하지 않는지 여러 화면 크기에서 확인하는 용도입니다. 실제 다크 화면은 위 `deid-dark-*`로 검증합니다.
 
 실제 공개 주소 검증: `HANKKI_URL=https://rlasksk030.github.io/hankki/ npm run test:live`
 (배포 workflow의 `verify-live` 단계가 매 배포마다 자동으로 실행합니다)
@@ -204,9 +206,11 @@ npm run test:analyzer:stress   # 로컬 전용 대형 판독 매트릭스(기기
 
 - 판독 기준은 오늘근무 **세로 월간 달력**(7열 격자, A 노랑·B 파랑·C 무채색 원, 빨간 '휴')입니다. 색·밝기는 절대값이 아니라
   달력 배경과의 대비로 읽으므로 라이트·다크 테마를 같은 방법으로 처리합니다.
-- **다크 테마는 합성 이미지로만 검증했습니다.** 실제 오늘근무 다크 화면 원본으로는 아직 확인하지 못했습니다.
-  C 원이 배경과 거의 구분되지 않는 팔레트라면 휴로 단정하지 않고 '확인 필요'로 표시합니다.
+- 다크 테마는 **실제 iPhone 다크 화면 3장**(2026년 9·10·12월, 1188×2576)과 합성 이미지로 검증했습니다.
+  오늘근무 다크 테마는 검은 바탕에 근무 원 색을 라이트와 똑같이 씁니다(C 원 rgb(66,66,66)). 이보다 더 흐린 원은
+  휴로 단정하지 않고 '확인 필요'로 표시합니다.
 - 화면 크기는 750~1440px 폭(작은 iPhone, 일반, Pro Max, 1320px 계열, Android HD/FHD/QHD)을 **재배치 이미지**로 검증했습니다.
+  실제 화면 크기는 iPhone 1188×2576(다크)과 923×2000으로 줄인 라이트 화면입니다.
   실제 iPhone 17 Pro Max·Galaxy 원본 검증과는 다릅니다(Galaxy 1440×3120 원본 1장은 이전 작업에서 로컬 비공개 테스트로만 확인).
 - 실제 스크린샷 검증 범위는 2026년 9월 ~ 2027년 5월, 2027년 8월입니다(5주 · 6주 달력). 4주 달력은 합성 이미지로만 확인했습니다.
 - 마지막 경계선은 폭의 60% 이상이 보여야 합니다. 떠 있는 버튼·탭 바가 그보다 많이 가리면 보이지 않는 주를 만들어 내지 않고

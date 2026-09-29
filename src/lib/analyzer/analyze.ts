@@ -9,7 +9,7 @@ import {
 import type { Shift, ShiftDay } from "../settlement";
 import { type CalendarGrid, detectGrid } from "./grid";
 import { DEFAULT_DATE_INK_CONTRAST, type RasterImage, colour, countClasses, inkRatio, isNeutral } from "./pixels";
-import { type Background, contrast, gridBackground } from "./theme";
+import { type Background, cellSurface, contrast, gridBackground } from "./theme";
 import { markerGeometry } from "./markers";
 import { verifyTitle } from "./title";
 
@@ -67,6 +67,7 @@ export function readCell(img: RasterImage, grid: CalendarGrid, row: number, colu
     cx + radius * 1.25,
     Math.min(cell.top + cell.height - 2, cy + radius * 1.25),
     bg,
+    cellSurface(img, cell.left, cell.top, cell.width, cell.height),
   );
   const circleArea = Math.PI * radius ** 2;
   const ratios = {

@@ -197,15 +197,15 @@ describe("evidence is missing → never a confident wrong schedule", () => {
     expectNoConfidentWrongRead(await raster(await toSyntheticDark(light, "black-inverted")), "table dark");
   });
   it("low-contrast grey circles are never silently read as OFF", async () => {
-    // Replace every C circle of the public 2026.09 fixture with a weak grey disc (contrast ≈0.23, no red 휴 label),
-    // e.g. a dark-theme palette whose C circle is close to the background.
+    // Replace every C circle of the public 2026.09 fixture with a weak grey disc (contrast ≈0.14, no red 휴 label):
+    // weaker than any real shift circle (C is 0.74 on white, 0.26 on black) but clearly not empty.
     const cw = 923 / 7, rh = 1489 / 5;
     const discs: string[] = [];
     september.forEach((shift, i) => {
       if (shift !== "C") return;
       const index = i + 2; // September 2026 starts on Tuesday
       const cx = (index % 7) * cw + 66, cy = 264 + Math.floor(index / 7) * rh + 65.4;
-      discs.push(`<circle cx="${cx}" cy="${cy}" r="28" fill="#c4c4c4"/>`);
+      discs.push(`<circle cx="${cx}" cy="${cy}" r="28" fill="#dcdcdc"/>`);
     });
     const overlay = Buffer.from(`<svg width="923" height="2000">${discs.join("")}</svg>`);
     const img = await raster(await sharp("tests/fixtures/deid-2026-09.png").composite([{ input: overlay }]).png().toBuffer());

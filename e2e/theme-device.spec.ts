@@ -2,6 +2,8 @@
 // Images are generated in memory from public de-identified fixtures (tests/deviceLayout.ts):
 // "resolution class" = re-laid-out fixture, "dark" = SYNTHETIC polarity transform (not the real app palette).
 // Browser engines here are Playwright builds, not physical iPhone/Android devices.
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 import { type DarkVariant, DEVICE_CLASSES, renderDeviceCapture, toSyntheticDark } from "../tests/deviceLayout";
 import { BASE } from "./target";
@@ -120,3 +122,42 @@ test("dark capture of another month is rejected with the photo's own title", asy
   await expect(alert).toContainText("사진 속 제목은 2026.09로 보여요");
   expect(await storedMonths(page)).toEqual([]);
 });
+
+// ACTUAL 오늘근무 dark-theme screenshots: public de-identified copies (always) and the private originals (local only).
+const fixture = (name: string) => fileURLToPath(new URL(`../tests/fixtures/${name}`, import.meta.url));
+const ACTUAL: Array<{ name: string; files: [string, string]; fallback?: boolean; privateOnly?: boolean }> = [
+  { name: "actual dark + dark (de-identified)", files: ["deid-dark-2026-09.png", "deid-dark-2026-10.png"] },
+  { name: "actual dark + dark (de-identified), Image fallback decoder", files: ["deid-dark-2026-09.png", "deid-dark-2026-10.png"], fallback: true },
+  { name: "light + actual dark (de-identified)", files: ["deid-2026-09.png", "deid-dark-2026-10.png"] },
+  { name: "actual dark + light (de-identified)", files: ["deid-dark-2026-09.png", "deid-2026-10.png"] },
+  { name: "actual dark originals (private, local only)", files: ["private/dark-2026-09.png", "private/dark-2026-10.png"], privateOnly: true },
+];
+for (const c of ACTUAL) {
+  test(`register ${c.name}: 7 meals, every day saved`, async ({ page }) => {
+    test.skip(!!c.privateOnly && !c.files.every((f) => existsSync(fixture(f))), "Private screenshots stay local and are never committed");
+    if (c.fallback) {
+      await page.addInitScript(() => {
+        window.createImageBitmap = async () => {
+          throw new Error("simulated unsupported decoder");
+        };
+      });
+    }
+    await page.clock.setFixedTime(new Date("2026-09-25T10:00:00+09:00"));
+    await page.goto(BASE);
+    await page.getByRole("button", { name: "근무표 등록하기" }).click();
+    await page.getByRole("button", { name: "계속" }).click();
+    for (const [i, file] of c.files.entries()) {
+      await page.getByLabel(new RegExp(`${i + 1}번째 사진 선택`)).setInputFiles({ name: `capture-${i + 1}.png`, mimeType: "image/png", buffer: readFileSync(fixture(file)) });
+    }
+    await page.getByRole("button", { name: "근무표 분석하기" }).click();
+    await expect(page.getByTestId("result-allowance")).toHaveText("7", { timeout: 30_000 });
+    await expect(page.getByLabel("A 6일, B 11일, C 6일")).toBeVisible();
+    await expect(page.getByText("확인이 필요한 날짜가 있어요")).toHaveCount(0);
+    await page.getByRole("button", { name: "사용 시작" }).click();
+    await expect(page.getByTestId("remaining")).toHaveText("7");
+    const months = await storedMonths(page);
+    expect(months[0].days.map((d) => d.shift)).toEqual(EXPECTED_MONTHS["2026-09"]);
+    expect(months[1].days.map((d) => d.shift)).toEqual(EXPECTED_MONTHS["2026-10"]);
+    expect(months.map((m) => m.monthCheck)).toEqual(["title", "title"]);
+  });
+}

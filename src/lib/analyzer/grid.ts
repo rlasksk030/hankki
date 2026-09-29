@@ -74,6 +74,9 @@ function horizontalSegments(img: RasterImage): Line[] {
   const lines: Line[] = bands.filter(b => b.endY - b.y <= Math.max(3, img.width * 0.008))
     .map(b => ({ left: b.left, right: b.right, y: (b.y + b.endY) / 2, covered: b.right - b.left }));
   lines.push(...joinInterruptedLines(lines));
+  // scanGrid pairs a first (upper) with a later (lower) boundary: keep the list in top-to-bottom order,
+  // joined boundaries included (a highlighted cell in the first week splits the top boundary).
+  lines.sort((a, b) => a.y - b.y || b.covered - a.covered);
   lineCache.set(img.data, lines);
   return lines;
 }

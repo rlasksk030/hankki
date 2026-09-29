@@ -1,8 +1,8 @@
-// Large local stress matrix (≈400 captures, several minutes). Not part of `npm test`/CI;
+// Large local stress matrix (≈470 captures, several minutes). Not part of `npm test`/CI;
 // run with `npm run test:analyzer:stress`. CI covers representative cases in
 // theme-device.test.ts and capture-variants.test.ts.
 // Inputs: public de-identified fixtures, re-laid-out per screen class, light + two SYNTHETIC dark variants,
-// plus plain resizes. Every date is compared with the human-read answers.
+// plus plain resizes of the light and the actual dark (de-identified) captures. Every date is compared with the human-read answers.
 import sharp from "sharp";
 import { expect, it } from "vitest";
 import { analyzeMonth } from "../src/lib/analyzer/analyze";
@@ -40,6 +40,13 @@ function check(img: Parameters<typeof analyzeMonth>[0], id: string, label: strin
     for (const id of MONTHS) {
       const buffer = await sharp(`tests/fixtures/deid-${id}.png`).resize({ width }).png().toBuffer();
       check(await rasterLikeBrowser(buffer, analysisSize), id, `resize ${width}px`, failures);
+    }
+  }
+  // Actual dark-theme screenshots (de-identified) at every width.
+  for (const width of WIDTHS) {
+    for (const id of ["2026-09", "2026-10", "2026-12"]) {
+      const buffer = await sharp(`tests/fixtures/deid-dark-${id}.png`).resize({ width }).png().toBuffer();
+      check(await rasterLikeBrowser(buffer, analysisSize), id, `actual dark ${width}px`, failures);
     }
   }
   expect(failures).toEqual([]);
