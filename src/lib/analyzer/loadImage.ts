@@ -6,20 +6,27 @@ import type { RasterImage } from "./pixels";
  */
 export async function loadRaster(file: Blob): Promise<RasterImage> {
   const { source, width, height, release } = await decode(file);
+  let canvas: HTMLCanvasElement | undefined;
   try {
     if (!width || !height) throw new Error("empty image");
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    // Keep analysis buffers bounded for high-resolution/scrolling screenshots.
+    // Ordinary iPhone images remain at their original resolution.
+    const scale = Math.min(1, 1440 / width, Math.sqrt(4_000_000 / (width * height)));
+    const targetWidth = Math.max(1, Math.floor(width * scale));
+    const targetHeight = Math.max(1, Math.floor(height * scale));
+    canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) throw new Error("no canvas");
-    ctx.drawImage(source, 0, 0);
-    const { data } = ctx.getImageData(0, 0, width, height);
-    // iOS Safari의 Canvas 메모리를 빨리 돌려준다
-    canvas.width = 0;
-    canvas.height = 0;
-    return { width, height, data };
+    ctx.drawImage(source, 0, 0, targetWidth, targetHeight);
+    const { data } = ctx.getImageData(0, 0, targetWidth, targetHeight);
+    return { width: targetWidth, height: targetHeight, data };
   } finally {
+    if (canvas) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
     release();
   }
 }
