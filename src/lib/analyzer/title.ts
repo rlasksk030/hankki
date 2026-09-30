@@ -1,16 +1,23 @@
 // 오늘근무 월간 화면 상단의 연/월 제목("2026.09")만 읽는 가벼운 숫자 판독.
 // 범용 OCR이 아니다: 제목 줄의 글자 7개(숫자 4 · 점 · 숫자 2)를 잘라
 // 5×7 칸 잉크 밀도로 숫자 기준표(digitTemplates)와 비교하고, 선택한 연/월과 맞는지만 확인한다.
+// 잉크는 '제목 줄 배경과의 대비'로 잰다: 흰 바탕 검은 글자(라이트)와 검은 바탕 흰 글자(다크)가
+// 같은 값이 되므로 숫자 기준표 한 벌로 두 테마를 모두 읽는다.
 // 모든 처리는 브라우저 안에서 이미지 픽셀로만 한다.
 import type { YearMonth } from "../dates";
 import { DIGIT_TEMPLATES } from "./digitTemplates";
 import type { RasterImage } from "./pixels";
 import { detectGrid } from "./grid";
+import { type Background, backgroundOf, estimateBackground } from "./theme";
 
 export const FEATURE_COLS = 5;
 export const FEATURE_ROWS = 7;
 
-const DARK = 110;
+/** 글자로 볼 최소 잉크 (흰 바탕에서 밝기 110 미만과 같다) */
+const TITLE_INK = 255 - 110;
+/** 잉크를 밀도 0~1로 바꾸는 구간 (흰 바탕에서 밝기 200 → 0, 40 → 1과 같다) */
+const FEATURE_INK_FLOOR = 255 - 200;
+const FEATURE_INK_SPAN = 160;
 
 export interface Glyph {
   x0: number;
@@ -19,9 +26,21 @@ export interface Glyph {
   y1: number;
 }
 
-function lum(img: RasterImage, x: number, y: number): number {
+/**
+ * 글자 잉크 양 (0~255): 배경에서 글자 쪽으로 얼마나 멀어졌는지.
+ * 배경 밝기 범위로 정규화한 뒤 255 척도로 되돌리므로 흰 바탕(255)에서는 기존의 255 − 밝기와 같다.
+ */
+function ink(img: RasterImage, x: number, y: number, bg: Background): number {
   const i = (y * img.width + x) * 4;
-  return (img.data[i] + img.data[i + 1] + img.data[i + 2]) / 3;
+  const l = (img.data[i] + img.data[i + 1] + img.data[i + 2]) / 3;
+  const toward = bg.polarity === "light" ? bg.luminance - l : l - bg.luminance;
+  return Math.max(0, (toward / bg.range) * 255);
+}
+
+const titleBackgrounds = new WeakMap<object, Background>();
+/** 제목을 찾은 머리 부분의 배경 (사진마다 따로 추정) */
+function titleBackground(img: RasterImage): Background {
+  return titleBackgrounds.get(img.data) ?? backgroundOf(255);
 }
 
 /**
@@ -41,8 +60,10 @@ export function findTitleGlyphs(img: RasterImage): Glyph[] {
   const bw = x1 - x0;
   const bh = y1 - y0;
 
+  const bg = estimateBackground(img, x0, y0, x1, y1);
+  titleBackgrounds.set(img.data, bg);
   const dark = new Uint8Array(bw * bh);
-  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (lum(img, x0 + x, y0 + y) < DARK) dark[y * bw + x] = 1;
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) if (ink(img, x0 + x, y0 + y, bg) > TITLE_INK) dark[y * bw + x] = 1;
 
   // 연결 요소(8방향)
   const seen = new Uint8Array(bw * bh);
@@ -101,7 +122,7 @@ export function findTitleGlyphs(img: RasterImage): Glyph[] {
 }
 
 /** 글자 상자를 5×7 칸으로 나눠 칸마다 잉크 밀도(0~1) + 가로세로 비율 */
-export function glyphFeatures(img: RasterImage, g: Glyph): number[] {
+export function glyphFeatures(img: RasterImage, g: Glyph, bg: Background = titleBackground(img)): number[] {
   const w = g.x1 - g.x0 + 1;
   const h = g.y1 - g.y0 + 1;
   const out: number[] = [];
@@ -115,7 +136,7 @@ export function glyphFeatures(img: RasterImage, g: Glyph): number[] {
       let n = 0;
       for (let y = Math.floor(cy0); y < Math.max(Math.floor(cy0) + 1, Math.ceil(cy1)); y++) {
         for (let x = Math.floor(cx0); x < Math.max(Math.floor(cx0) + 1, Math.ceil(cx1)); x++) {
-          sum += Math.max(0, Math.min(1, (200 - lum(img, x, y)) / 160));
+          sum += Math.max(0, Math.min(1, (ink(img, x, y, bg) - FEATURE_INK_FLOOR) / FEATURE_INK_SPAN));
           n += 1;
         }
       }

@@ -143,12 +143,12 @@ describe.each(FIXTURE_SETS)("오늘근무 스크린샷 판독: $name", ({ sepFil
     expect(result.kind).toBe("not-calendar");
   });
 
-  it("어두운 사진은 다크 모드 안내를 한다", () => {
+  it("어두운 단색 사진은 (다크 테마를 지원해도) 달력이 아니므로 판독하지 않는다", () => {
     const dark: RasterImage = { width: 400, height: 860, data: new Uint8Array(400 * 860 * 4).fill(20) };
     const result = analyzePair(dark, dark, SEP);
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.kind).toBe("dark-mode");
+    expect(result.kind).toBe("not-calendar");
   });
 
   it("아래쪽이 잘린 스크린샷은 잘렸다고 알려준다", async () => {

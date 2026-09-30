@@ -8,7 +8,8 @@ import {
 } from "../dates";
 import type { Shift, ShiftDay } from "../settlement";
 import { type CalendarGrid, detectGrid } from "./grid";
-import { type RasterImage, countClasses, inkRatio, meanLuminance } from "./pixels";
+import { DEFAULT_DATE_INK_CONTRAST, type RasterImage, colour, countClasses, inkRatio, isNeutral } from "./pixels";
+import { type Background, cellSurface, contrast, gridBackground } from "./theme";
 import { markerGeometry } from "./markers";
 import { verifyTitle } from "./title";
 
@@ -20,6 +21,10 @@ const WEAK_THRESHOLD = 0.2;
 const RED_THRESHOLD = 0.02;
 /** 날짜 숫자 영역 잉크 비율: 이번 달 ≥ 0.03, 앞뒤 달(흐린 숫자) ≈ 0 */
 const INK_THRESHOLD = 0.012;
+/** 원 자리에 배경과 다른 무언가(흐린 원·번짐)가 이만큼 있는데 A/B/C로도 휴로도 확정되지 않으면 '확인 필요' */
+const UNCLASSIFIED_DISC_RATIO = DETECT_THRESHOLD;
+/** 확인이 필요한 칸의 확신도 (Review 화면에서 점선으로 표시되는 0.7 미만, 자동 판독 실패 기준 0.5 미만) */
+const UNSURE_CONFIDENCE = 0.3;
 
 export interface CellBox {
   left: number;
@@ -40,7 +45,7 @@ export function cellBox(grid: CalendarGrid, row: number, column: number): CellBo
 export interface CellReading {
   shift: Shift;
   confidence: number;
-  ratios: { yellow: number; blue: number; dark: number; red: number };
+  ratios: { yellow: number; blue: number; dark: number; faint: number; red: number };
 }
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
@@ -50,7 +55,8 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function readCell(img: RasterImage, grid: CalendarGrid, row: number, column: number): CellReading {
   const cell = cellBox(grid, row, column);
   const geometry = markerGeometry(img, grid);
-  if (!geometry) return { shift: "OFF", confidence: 0, ratios: { yellow: 0, blue: 0, dark: 0, red: 0 } };
+  if (!geometry) return { shift: "OFF", confidence: 0, ratios: { yellow: 0, blue: 0, dark: 0, faint: 0, red: 0 } };
+  const bg = gridBackground(img, grid);
   const cx = cell.left + geometry.x;
   const cy = cell.top + geometry.y;
   const radius = geometry.diameter / 2;
@@ -60,12 +66,15 @@ export function readCell(img: RasterImage, grid: CalendarGrid, row: number, colu
     Math.max(cell.top + 2, cy - radius * 1.25),
     cx + radius * 1.25,
     Math.min(cell.top + cell.height - 2, cy + radius * 1.25),
+    bg,
+    cellSurface(img, cell.left, cell.top, cell.width, cell.height),
   );
   const circleArea = Math.PI * radius ** 2;
   const ratios = {
     yellow: counts.yellow / circleArea,
     blue: counts.blue / circleArea,
     dark: counts.dark / circleArea,
+    faint: counts.faint / circleArea,
     red: counts.red / circleArea,
   };
 
@@ -89,7 +98,65 @@ export function readCell(img: RasterImage, grid: CalendarGrid, row: number, colu
   let confidence = clamp01(1 - best / DETECT_THRESHOLD);
   // 원도 없고 빨간 '휴'도 없으면(빈 칸) 확인이 필요하다.
   if (ratios.red < RED_THRESHOLD) confidence = Math.min(confidence, 0.6);
+  // 원 크기의 흐린/애매한 표시가 있는데 A/B/C도 휴도 아니면 휴로 단정하지 않는다
+  // (예: 배경과 대비가 약한 원). 사용자가 Review 화면에서 확인하도록 확신도를 낮춘다.
+  if (ratios.red < RED_THRESHOLD && ratios.faint + best >= UNCLASSIFIED_DISC_RATIO) {
+    confidence = Math.min(confidence, UNSURE_CONFIDENCE);
+  }
   return { shift: "OFF", confidence: round2(confidence), ratios };
+}
+
+/** 칸 왼쪽 위 날짜 숫자 영역 (표시 크기에 비례) */
+function dateArea(grid: CalendarGrid, row: number, column: number, unit: number) {
+  const cell = cellBox(grid, row, column);
+  return {
+    x0: cell.left + unit * 0.03,
+    y0: cell.top + unit * 0.03,
+    x1: cell.left + unit * 0.35,
+    y1: cell.top + Math.min(unit * 0.22, cell.height * 0.3),
+  };
+}
+
+/** 이번 달 날짜 글자의 대비 중 이 비율 이상이면 '진한 잉크' (앞뒤 달 흐린 날짜는 이보다 훨씬 약하다) */
+const DATE_INK_SHARE = 0.55;
+/** 칸의 대부분은 이번 달이다: 칸별 최대 대비의 상위 25% 지점을 이번 달 글자 대비로 본다 */
+const IN_MONTH_PERCENTILE = 0.75;
+const dateInkCache = new WeakMap<object, Map<string, number>>();
+
+/**
+ * 날짜 '진한 잉크' 기준을 이 사진 스스로의 글자 대비로 정한다.
+ * 라이트(검은 글자)·다크(흰 글자)·축소로 흐려진 글자 모두 같은 규칙: 이번 달 글자 대비의 55%.
+ * 기존 흰 배경 기준(0.45)보다 엄격해지지 않도록 그 값을 상한으로 둔다.
+ */
+function dateInkContrast(img: RasterImage, grid: CalendarGrid, unit: number, bg: Background): number {
+  let entries = dateInkCache.get(img.data);
+  if (!entries) {
+    entries = new Map();
+    dateInkCache.set(img.data, entries);
+  }
+  const key = [grid.left, grid.right, grid.top, grid.bottom, grid.rows, unit].join(",");
+  const cached = entries.get(key);
+  if (cached !== undefined) return cached;
+  const peaks: number[] = [];
+  for (let row = 0; row < grid.rows; row++) {
+    for (let column = 0; column < 7; column++) {
+      const a = dateArea(grid, row, column, unit);
+      let peak = 0;
+      for (let y = Math.max(0, Math.floor(a.y0)); y < Math.min(img.height, Math.ceil(a.y1)); y++) {
+        for (let x = Math.max(0, Math.floor(a.x0)); x < Math.min(img.width, Math.ceil(a.x1)); x++) {
+          const i = (y * img.width + x) * 4;
+          const c = colour(img.data[i], img.data[i + 1], img.data[i + 2]);
+          if (isNeutral(c)) peak = Math.max(peak, contrast(c.luminance, bg));
+        }
+      }
+      peaks.push(peak);
+    }
+  }
+  peaks.sort((a, b) => a - b);
+  const text = peaks[Math.floor((peaks.length - 1) * IN_MONTH_PERCENTILE)] ?? 1;
+  const threshold = Math.min(DEFAULT_DATE_INK_CONTRAST, text * DATE_INK_SHARE);
+  entries.set(key, threshold);
+  return threshold;
 }
 
 /**
@@ -104,6 +171,8 @@ export function layoutFit(img: RasterImage, grid: CalendarGrid, ym: YearMonth): 
   // Date glyph scale follows the observed content, not the width of a stretched cell.
   const marker = markerGeometry(img, grid);
   const unit = marker ? Math.min(cw, marker.diameter / 0.4) : cw;
+  const bg = gridBackground(img, grid);
+  const threshold = dateInkContrast(img, grid, unit, bg);
   const totalRows = Math.max(grid.rows, needed);
   // 달마다 다른 곳은 첫 주와 마지막 주(앞뒤 달 날짜가 섞이는 행)뿐이므로 그 두 행만 비교한다.
   // 격자에 보이지 않는 행은 전부 불일치로 센다.
@@ -117,14 +186,8 @@ export function layoutFit(img: RasterImage, grid: CalendarGrid, ym: YearMonth): 
       const inMonth = index >= offset && index < offset + days;
       considered += 1;
       if (row >= grid.rows) continue;
-      const cell = cellBox(grid, row, column);
-      const ink = inkRatio(
-        img,
-        cell.left + unit * 0.03,
-        cell.top + unit * 0.03,
-        cell.left + unit * 0.35,
-        cell.top + Math.min(unit * 0.22, cell.height * 0.3),
-      );
+      const area = dateArea(grid, row, column, unit);
+      const ink = inkRatio(img, area.x0, area.y0, area.x1, area.y1, bg, threshold);
       if (ink > INK_THRESHOLD === inMonth) matched += 1;
     }
   }
@@ -160,7 +223,6 @@ export function readDays(img: RasterImage, reading: MonthReading, fromDay: numbe
 // ---- 두 장 분석 ----
 
 export type AnalysisErrorKind =
-  | "dark-mode"
   | "not-calendar"
   | "cropped"
   | "month-mismatch"
@@ -215,6 +277,8 @@ export function photoFingerprint(img: RasterImage, grid: CalendarGrid): string {
   const size = 16;
   const values: number[] = [];
   const h = grid.bottom - grid.top;
+  // 다크 테마는 밝기를 뒤집어 라이트 테마와 같은 모양의 지문을 만든다 (라이트 사진의 지문 값은 기존과 같다)
+  const dark = gridBackground(img, grid).polarity === "dark";
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       let sum = 0;
@@ -230,7 +294,8 @@ export function photoFingerprint(img: RasterImage, grid: CalendarGrid): string {
           n += 1;
         }
       }
-      values.push(n ? sum / n : 255);
+      const mean = n ? sum / n : 255;
+      values.push(dark ? 255 - mean : mean);
     }
   }
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
@@ -300,12 +365,6 @@ export type AnalysisResult = AnalysisSuccess | AnalysisFailure;
 const SWAP_MARGIN = 0.15;
 const MIN_FIT = 0.8;
 
-function imageIsDark(img: RasterImage, grid: CalendarGrid): boolean {
-  return grid.detected
-    ? meanLuminance(img, grid.top, grid.bottom, 4, grid.left, grid.right) < 110
-    : meanLuminance(img, 0, img.height) < 110;
-}
-
 function checkImage(img: RasterImage, reading: MonthReading, photo: 1 | 2): AnalysisFailure | null {
   const { grid, fit, month } = reading;
   if (!grid.detected) return { ok: false, kind: "not-calendar", photo };
@@ -322,15 +381,7 @@ function checkImage(img: RasterImage, reading: MonthReading, photo: 1 | 2): Anal
  * 기준월 21일~말일, 다음 달 1일~20일을 읽어 정산기간 근무표를 만든다.
  */
 export function analyzePair(first: RasterImage, second: RasterImage, base: YearMonth): AnalysisResult {
-  for (const [img, photo] of [
-    [first, 1],
-    [second, 2],
-  ] as const) {
-    if (imageIsDark(img, detectGrid(img, calendarRows(base.year, base.month)))) {
-      return { ok: false, kind: "dark-mode", photo };
-    }
-  }
-
+  // 라이트/다크 테마는 사진마다 따로 추정한다 (두 장이 서로 다른 테마여도 된다).
   const next = addMonths(base, 1);
   const straight = [fitMonth(first, base), fitMonth(second, next)] as const;
   const crossed = [fitMonth(second, base), fitMonth(first, next)] as const;
@@ -368,7 +419,13 @@ export function analyzePair(first: RasterImage, second: RasterImage, base: YearM
   }
 
   const unsure = shifts.filter((s) => s.confidence < 0.5).length;
-  if (unsure > shifts.length * 0.25) return { ok: false, kind: "low-confidence", shifts, months, diagnostics };
+  if (unsure > shifts.length * 0.25) {
+    // 어느 사진이 흐린지 알려 준다 (정산기간 안에서 확신 없는 날이 더 많은 쪽)
+    const share = (days: ShiftDay[]) => days.filter((d) => d.confidence < 0.5).length / Math.max(1, days.length);
+    const baseStart = toISODate(base.year, base.month, 21);
+    const photo = share(months[0].filter((d) => d.date >= baseStart)) >= share(months[1].slice(0, 20)) ? basePhoto : nextPhoto;
+    return { ok: false, kind: "low-confidence", photo, shifts, months, diagnostics };
+  }
 
   const warnings: MonthWarning[] = [];
   checks.forEach((check, i) => {
@@ -397,7 +454,6 @@ export type MonthAnalysis =
 /** 사진 한 장으로 한 달(1일~말일) 근무표를 읽는다. [다음 달 근무표 추가]·[다시 등록]에 쓴다. */
 export function analyzeMonth(img: RasterImage, ym: YearMonth): MonthAnalysis {
   const reading = fitMonth(img, ym);
-  if (imageIsDark(img, reading.grid)) return { ok: false, kind: "dark-mode" };
   const days = readDays(img, reading, 1, daysInMonth(ym.year, ym.month));
   const problem = checkImage(img, reading, 1);
   if (problem) {

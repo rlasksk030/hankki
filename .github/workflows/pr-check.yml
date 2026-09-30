@@ -1,0 +1,40 @@
+# Pull request 검사 전용 (배포하지 않음). 배포는 deploy-pages.yml만 main push에서 한다.
+# main에 합치기 전에 같은 테스트를 돌리고, 사진 판독 핵심 E2E는 WebKit(iOS Safari 엔진 계열)에서도 확인한다.
+name: PR check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: 타입 검사 + 단위 테스트 + 스크린샷 판독 회귀 테스트
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: 브라우저 설치 (Chromium, WebKit)
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: 브라우저 테스트 전체 (Chromium, GitHub Pages 하위 경로 조건)
+        run: npm run test:e2e
+
+      - name: 사진 판독·월 검증·기기/테마 E2E (WebKit)
+        run: >-
+          npx playwright test --browser=webkit
+          e2e/theme-device.spec.ts e2e/image-input.spec.ts e2e/android-real.spec.ts
+          e2e/adaptive-layout.spec.ts e2e/month-check.spec.ts
