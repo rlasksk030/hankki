@@ -4,8 +4,9 @@ import { IconAlert, IconChevronRight } from "../components/icons";
 import { ShiftBadge, TopBar } from "../components/ui";
 import { type ISODate, formatMonthDay, formatPeriod, isWithin, weekdayLabel } from "../lib/dates";
 import { overAllowance } from "../lib/schedule";
-import { type Settlement, countShifts, remainingMeals } from "../lib/settlement";
+import { type Settlement, countShifts, countedShifts, remainingMeals } from "../lib/settlement";
 import { MealSheet, type ToastFn } from "./Home";
+import { BoundaryNote } from "./Review";
 
 function statusOf(s: Settlement, today: ISODate): string {
   const remaining = remainingMeals(s);
@@ -79,7 +80,7 @@ export function HistoryDetailScreen({
   toast: ToastFn;
 }) {
   const [selected, setSelected] = useState<ISODate | null>(null);
-  const counts = countShifts(settlement.shifts);
+  const counts = countShifts(countedShifts(settlement.shifts, settlement.startDate, settlement.endDate));
   const mealDates = new Set(settlement.mealUses.map((m) => m.date));
 
   return (
@@ -122,6 +123,7 @@ export function HistoryDetailScreen({
             </span>
           ))}
         </div>
+        <BoundaryNote shifts={settlement.shifts} startDate={settlement.startDate} endDate={settlement.endDate} />
 
         <div className="section-head">
           <h2 className="section-title">근무표</h2>

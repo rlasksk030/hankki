@@ -2,15 +2,17 @@ import { type ReactNode, useState } from "react";
 import { PeriodCalendar } from "../components/PeriodCalendar";
 import { IconAlert, IconChevronRight } from "../components/icons";
 import { BottomSheet, ShiftBadge, TopBar } from "../components/ui";
-import { type ISODate, type YearMonth, formatMonthDay, formatPeriod, weekdayLabel } from "../lib/dates";
+import { type ISODate, type YearMonth, formatMonthDay, formatPeriod, isWithin, weekdayLabel } from "../lib/dates";
 import { type StoreData, affectedBases, periodView } from "../lib/schedule";
 import {
   BASE_DAYS,
   SHIFTS,
   type Shift,
   type ShiftDay,
+  boundaryShifts,
   countShifts,
   countWorkDays,
+  countedShifts,
   lowConfidenceDays,
   mealAllowanceFor,
   shiftLabel,
@@ -29,6 +31,25 @@ function ShiftCounts({ shifts }: { shifts: ShiftDay[] }) {
     </div>
   );
 }
+
+/** 정산 경계(20일 23시)에서 다른 정산으로 계산한 C 근무 안내. 해당 없으면 표시하지 않는다. */
+export function BoundaryNote({ shifts, startDate, endDate }: { shifts: ShiftDay[]; startDate: ISODate; endDate: ISODate }) {
+  const { carriedIn, carriedOut } = boundaryShifts(shifts, startDate, endDate);
+  const parts = [
+    carriedIn ? `${formatMonthDay(carriedIn)} C는 이번 정산` : "",
+    carriedOut ? `${formatMonthDay(carriedOut)} C는 다음 정산` : "",
+  ].filter(Boolean);
+  if (parts.length === 0) return null;
+  return (
+    <p className="footnote" data-testid="boundary-note">
+      20일 23시 이후 시작하는 근무라 {parts.join(", ")}으로 계산했어요.
+    </p>
+  );
+}
+
+/** 화면에 보이는 정산기간 날짜(21일~20일)만 */
+const visibleDays = (shifts: ShiftDay[], startDate: ISODate, endDate: ISODate) =>
+  shifts.filter((s) => isWithin(s.date, startDate, endDate));
 
 // ---------- 화면 E. 분석 결과 ----------
 
@@ -49,9 +70,10 @@ export function ResultScreen({
   onConfirm: () => void;
   onBack: () => void;
 }) {
-  const workDays = countWorkDays(shifts);
+  const counted = countedShifts(shifts, startDate, endDate);
+  const workDays = countWorkDays(counted);
   const allowance = mealAllowanceFor(workDays);
-  const unsure = lowConfidenceDays(shifts).length;
+  const unsure = lowConfidenceDays(visibleDays(shifts, startDate, endDate)).length;
 
   return (
     <div className="screen">
@@ -77,7 +99,8 @@ export function ResultScreen({
           </div>
         </dl>
 
-        <ShiftCounts shifts={shifts} />
+        <ShiftCounts shifts={counted} />
+        <BoundaryNote shifts={shifts} startDate={startDate} endDate={endDate} />
 
         {unsure > 0 ? (
           <button type="button" className="notice notice-warning" onClick={onReview}>
@@ -156,6 +179,7 @@ export function ScheduleEditor({
   onBack,
   summary,
   doneLabel = "완료",
+  period = true,
 }: {
   title?: string;
   startDate: ISODate;
@@ -168,11 +192,14 @@ export function ScheduleEditor({
   /** 기본 요약(출근·간편식) 대신 보여줄 내용 */
   summary?: ReactNode;
   doneLabel?: string;
+  /** 정산기간 편집이면 정산 경계(20일 23시) 규칙으로 센다. 한 달 근무표 편집은 false */
+  period?: boolean;
 }) {
   const [selected, setSelected] = useState<ISODate | null>(null);
-  const workDays = countWorkDays(shifts);
+  const counted = period ? countedShifts(shifts, startDate, endDate) : shifts;
+  const workDays = countWorkDays(counted);
   const allowance = mealAllowanceFor(workDays);
-  const unsure = lowConfidenceDays(shifts).length;
+  const unsure = lowConfidenceDays(visibleDays(shifts, startDate, endDate)).length;
   const day = selected ? shifts.find((s) => s.date === selected) : undefined;
 
   return (
@@ -203,7 +230,8 @@ export function ScheduleEditor({
           onSelect={setSelected}
           caption="근무표"
         />
-        <ShiftCounts shifts={shifts} />
+        <ShiftCounts shifts={counted} />
+        {period ? <BoundaryNote shifts={shifts} startDate={startDate} endDate={endDate} /> : null}
       </div>
       <div className="screen-footer">
         <button type="button" className="button button-primary" onClick={onDone}>

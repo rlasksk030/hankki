@@ -1,6 +1,7 @@
 import {
   type ISODate,
   type YearMonth,
+  addDays,
   isWithin,
   periodDates,
   settlementPeriod,
@@ -53,6 +54,32 @@ export function countShifts(shifts: ShiftDay[]): Record<Shift, number> {
   return counts;
 }
 
+/** 정산 경계(20일 23시) 이후에 시작하는 근무. 오늘근무에는 시작한 날짜에 표시된다. */
+export const LATE_SHIFT: Shift = "C";
+
+/**
+ * 이 정산의 출근 계산에 들어가는 근무.
+ * 정산은 기준월 20일 23시 ~ 다음 달 20일 23시 전이고 근무표는 날짜 단위이므로:
+ * - 시작일 전날(기준월 20일)의 C는 23시 이후 시작 → 이번 정산에 포함
+ * - 마지막 날(다음 달 20일)의 C는 다음 정산으로 넘김
+ * - 그 밖의 21일 ~ 20일 근무(A·B·C·휴)는 그대로
+ */
+export function countedShifts(shifts: ShiftDay[], startDate: ISODate, endDate: ISODate): ShiftDay[] {
+  const eve = addDays(startDate, -1);
+  return shifts.filter((s) =>
+    s.date === eve
+      ? s.shift === LATE_SHIFT
+      : isWithin(s.date, startDate, endDate) && !(s.date === endDate && s.shift === LATE_SHIFT),
+  );
+}
+
+/** 경계에서 정산을 옮겨 계산한 C 근무 (화면 안내용) */
+export function boundaryShifts(shifts: ShiftDay[], startDate: ISODate, endDate: ISODate) {
+  const eve = addDays(startDate, -1);
+  const isLate = (date: ISODate) => shifts.some((s) => s.date === date && s.shift === LATE_SHIFT);
+  return { carriedIn: isLate(eve) ? eve : null, carriedOut: isLate(endDate) ? endDate : null };
+}
+
 /** 근무일수 = A + B + C 날짜 수 */
 export function countWorkDays(shifts: ShiftDay[]): number {
   return shifts.filter((s) => isWorkShift(s.shift)).length;
@@ -74,7 +101,7 @@ export function settlementId(base: YearMonth): string {
 
 /** 근무표가 바뀌면 파생값(workDays, mealAllowance)을 다시 계산한다. */
 export function recompute(s: Settlement, now: Date = new Date()): Settlement {
-  const workDays = countWorkDays(s.shifts);
+  const workDays = countWorkDays(countedShifts(s.shifts, s.startDate, s.endDate));
   return {
     ...s,
     workDays,
@@ -83,12 +110,23 @@ export function recompute(s: Settlement, now: Date = new Date()): Settlement {
   };
 }
 
-/** 정산기간 전체 날짜에 대해 근무표를 채운다. 빠진 날짜는 휴무로 둔다. */
+/** 시작일 전날(기준월 20일) 근무 중 이번 정산으로 넘어오는 것: C(20일 23시 이후 시작)일 때만 */
+export function carriedInShift(byDate: Map<ISODate, ShiftDay>, startDate: ISODate): ShiftDay[] {
+  const eve = byDate.get(addDays(startDate, -1));
+  return eve && eve.shift === LATE_SHIFT ? [eve] : [];
+}
+
+/**
+ * 정산기간 전체 날짜에 대해 근무표를 채운다. 빠진 날짜는 휴무로 둔다.
+ * 기준월 20일이 C이면 앞에 함께 둔다 (그 근무는 이번 정산으로 계산).
+ */
 export function normalizeShifts(base: YearMonth, shifts: ShiftDay[]): ShiftDay[] {
   const byDate = new Map(shifts.map((s) => [s.date, s]));
-  return periodDates(base).map(
-    (date) => byDate.get(date) ?? { date, shift: "OFF", source: "manual", confidence: 1 },
-  );
+  const dates = periodDates(base);
+  return [
+    ...carriedInShift(byDate, dates[0]),
+    ...dates.map((date) => byDate.get(date) ?? { date, shift: "OFF" as const, source: "manual" as const, confidence: 1 }),
+  ];
 }
 
 export function createSettlement(

@@ -17,7 +17,7 @@ import {
   saveMealUses,
   upsertMonth,
 } from "../src/lib/schedule";
-import { addMealUse, countShifts, remainingMeals } from "../src/lib/settlement";
+import { addMealUse, countShifts, countedShifts, remainingMeals } from "../src/lib/settlement";
 import { EXPECTED_2026_09 } from "./expected";
 import { NOW, expectedMonth, monthDays } from "./helpers";
 
@@ -80,9 +80,11 @@ describe("여러 정산기간", () => {
     const view = periodView(data, NOV)!;
     expect(view.startDate).toBe("2026-11-21");
     expect(view.endDate).toBe("2026-12-20");
+    // 달력에 보이는 11.21~12.20에는 C가 12일이지만, 12월 20일 C는 20일 23시 이후 시작이라 다음 정산으로 넘어간다
     expect(countShifts(view.shifts)).toMatchObject({ A: 6, B: 6, C: 12 });
-    expect(view.workDays).toBe(24);
-    expect(view.mealAllowance).toBe(6);
+    expect(countShifts(countedShifts(view.shifts, view.startDate, view.endDate))).toMatchObject({ A: 6, B: 6, C: 11 });
+    expect(view.workDays).toBe(23);
+    expect(view.mealAllowance).toBe(7);
     expect(registeredMonths(data)).toEqual([SEP, OCT, NOV, DEC]);
     expect(nextMonthToAdd(data)).toEqual({ year: 2027, month: 1 });
   });
@@ -120,16 +122,16 @@ describe("여러 정산기간", () => {
   it("6. 월 근무표 수정 시 그 날짜가 속한 정산만 다시 계산된다", () => {
     const data = upsertMonth(upsertMonth(sepOct(), expectedMonth(NOV)), expectedMonth(DEC));
     const before = [SEP, OCT, NOV].map((b) => periodView(data, b)!.mealAllowance);
-    expect(before).toEqual([7, 8, 6]);
+    expect(before).toEqual([7, 8, 7]); // 11월 정산: 12월 20일 C는 다음 정산 → 7회
 
     // 10월 6일(A, 9월 정산) → 휴: 9월 정산만 +1
     const a = editShift(data, "2026-10-06", "OFF", NOW);
-    expect([SEP, OCT, NOV].map((b) => periodView(a, b)!.mealAllowance)).toEqual([8, 8, 6]);
+    expect([SEP, OCT, NOV].map((b) => periodView(a, b)!.mealAllowance)).toEqual([8, 8, 7]);
     expect(a.months.find((m) => m.id === "2026-10")!.days[5]).toMatchObject({ shift: "OFF", source: "manual", confidence: 1 });
 
     // 10월 25일(C, 10월 정산) → 휴: 10월 정산만 +1
     const b = editShift(data, "2026-10-25", "OFF", NOW);
-    expect([SEP, OCT, NOV].map((x) => periodView(b, x)!.mealAllowance)).toEqual([7, 9, 6]);
+    expect([SEP, OCT, NOV].map((x) => periodView(b, x)!.mealAllowance)).toEqual([7, 9, 7]);
 
     // 10월 근무표 전체 교체(모두 휴): 10월을 쓰는 9월·10월 정산만 바뀌고 11월 정산은 그대로
     const allOff = makeMonth(OCT, monthDays(OCT, Array(31).fill("OFF")), NOW);
@@ -137,7 +139,7 @@ describe("여러 정산기간", () => {
     const after = [SEP, OCT, NOV].map((x) => periodView(c, x)!);
     expect(after[0].workDays).toBe(8); // 9.21~9.30 근무만 남음
     expect(after[1].workDays).toBe(14); // 11.1~11.20 근무만 남음
-    expect(after[2].mealAllowance).toBe(6);
+    expect(after[2].mealAllowance).toBe(7);
   });
 
   it("교체로 총 가능 횟수가 수령 횟수보다 적어지면 경고 대상이 되고, 수령 기록은 지우지 않는다", () => {

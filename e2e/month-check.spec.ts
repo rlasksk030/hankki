@@ -44,7 +44,7 @@ test("9월 사진을 12월로, 11월 사진을 2027년 2월로 선택하면 자�
   await page.getByRole("button", { name: "다시 선택" }).click();
   await page.getByLabel("근무표 사진 선택: 2026년 12월").setInputFiles(fixture("synthetic-2026-12.png"));
   await page.getByRole("button", { name: "근무표 분석하기" }).click();
-  await expect(page.getByText("11.21 — 12.20 · 간편식 6회")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("11.21 — 12.20 · 간편식 7회")).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: "저장" }).click();
 
   // 1월: 실제 6주짜리 1월 화면으로 추가

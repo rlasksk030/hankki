@@ -10,9 +10,9 @@ import {
   formatPeriod,
   formatYearMonth,
   periodDates,
+  appToday,
   settlementPeriod,
   toISODate,
-  todayISO,
 } from "./lib/dates";
 import {
   type StoreData,
@@ -29,7 +29,7 @@ import {
   periodView,
   upsertMonth,
 } from "./lib/schedule";
-import { type ShiftDay, setShiftInList, settlementId } from "./lib/settlement";
+import { type ShiftDay, carriedInShift, setShiftInList, settlementId } from "./lib/settlement";
 import { clearStore, emptyStore, restoreJSON } from "./lib/storage";
 import { useStore } from "./lib/useStore";
 import { HistoryDetailScreen, HistoryScreen } from "./screens/History";
@@ -103,12 +103,17 @@ function flowMonths(flow: Flow): YearMonth[] {
   return flow.mode === "pair" ? [flow.base, addMonths(flow.base, 1)] : [flow.base];
 }
 
-/** 초안 월 근무표에서 기준월 정산기간(21일~다음 달 20일)만 모은다 */
+/**
+ * 초안 월 근무표에서 기준월 정산기간(21일~다음 달 20일)을 모은다.
+ * 기준월 20일이 C이면 앞에 둔다 (20일 23시 이후 시작하는 근무라 이번 정산으로 계산).
+ */
 function draftPeriodShifts(flow: Flow): ShiftDay[] {
   const map = new Map(flow.months.flat().map((d) => [d.date, d]));
-  return periodDates(flow.base).map(
-    (date) => map.get(date) ?? { date, shift: "OFF", source: "manual", confidence: 0 },
-  );
+  const dates = periodDates(flow.base);
+  return [
+    ...carriedInShift(map, dates[0]),
+    ...dates.map((date) => map.get(date) ?? { date, shift: "OFF" as const, source: "manual" as const, confidence: 0 }),
+  ];
 }
 
 function editDraft(flow: Flow, date: string, shift: ShiftDay["shift"]): Flow {
@@ -124,10 +129,11 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
-  const [today, setToday] = useState(todayISO());
+  // 20일 23시부터는 새 정산이 시작되므로 앱의 '오늘'은 21일이 된다 (appToday)
+  const [today, setToday] = useState(appToday());
 
   useEffect(() => {
-    const tick = () => setToday(todayISO());
+    const tick = () => setToday(appToday());
     const id = window.setInterval(tick, 60_000);
     document.addEventListener("visibilitychange", tick);
     return () => {
@@ -401,6 +407,7 @@ export default function App() {
           content = (
             <ScheduleEditor
               title={`${ym.month}월 근무표 확인`}
+              period={false}
               startDate={toISODate(ym.year, ym.month, 1)}
               endDate={toISODate(ym.year, ym.month, daysInMonth(ym.year, ym.month))}
               shifts={days}
