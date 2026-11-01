@@ -4,6 +4,7 @@
 //   9.21~10.20 정산과 10.21~11.20 정산에 중복 저장하지 않는다.
 // - 정산(SettlementRecord)은 간편식 수령 기록만 가진다. 근무일·간편식 횟수는
 //   저장하지 않고 월별 근무표에서 기준월 21일 ~ 다음 달 20일을 모아 매번 계산한다.
+//   정산 경계는 20일 23시: 기준월 20일 C는 이번 정산, 다음 달 20일 C는 다음 정산(countedShifts).
 import {
   type ISODate,
   type YearMonth,
@@ -19,7 +20,9 @@ import {
   type Settlement,
   type Shift,
   type ShiftDay,
+  carriedInShift,
   countWorkDays,
+  countedShifts,
   mealAllowanceFor,
   settlementId,
 } from "./settlement";
@@ -133,11 +136,12 @@ export function periodStatus(data: StoreData, base: YearMonth, now: Date = new D
   for (const d of dates) if (!map.has(d)) missingIds.add(monthId(monthOf(d)));
   if (missingIds.size > 0) return { available: false, missing: [...missingIds].sort().map(toYearMonth) };
 
-  const shifts = dates.map((d) => map.get(d)!);
+  // 기준월 20일 C는 이번 정산으로 넘어온다. 그날 근무표가 없어도 계산을 막지는 않는다 (예전 데이터 호환).
+  const shifts = [...carriedInShift(map, dates[0]), ...dates.map((d) => map.get(d)!)];
   const id = settlementId(base);
   const record = data.settlements.find((r) => r.id === id);
   const { startDate, endDate } = settlementPeriod(base);
-  const workDays = countWorkDays(shifts);
+  const workDays = countWorkDays(countedShifts(shifts, startDate, endDate));
   const stamp = now.toISOString();
   return {
     available: true,
@@ -200,7 +204,7 @@ export function listPeriods(data: StoreData, today: ISODate): PeriodEntry[] {
   return [...ids].sort().map((id) => entry(data, toYearMonth(id)));
 }
 
-/** 날짜가 속한 정산의 기준월: 21일부터는 그 달, 20일까지는 지난달 */
+/** 날짜가 속한 정산의 기준월: 21일부터는 그 달, 20일까지는 지난달 (20일 23시 이후는 appToday가 21일로 준다) */
 export function currentBase(date: ISODate): YearMonth {
   const { year, month, day } = parseISODate(date);
   return day >= 21 ? { year, month } : addMonths({ year, month }, -1);

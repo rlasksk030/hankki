@@ -106,7 +106,8 @@ export function MonthScreen({
           </button>
         </div>
         <p className="hint">
-          정산기간은 기준월 21일부터 다음 달 20일까지예요. 간편식은 날짜 수와 관계없이 30일 기준으로 계산해요.
+          정산기간은 기준월 20일 23시부터 다음 달 20일 23시 전까지예요. 20일에 시작하는 C 근무는 다음 정산으로
+          계산해요. 간편식은 날짜 수와 관계없이 30일 기준으로 계산해요.
         </p>
       </div>
       <div className="screen-footer">

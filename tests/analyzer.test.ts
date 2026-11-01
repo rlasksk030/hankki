@@ -200,7 +200,8 @@ describe("다음 달 근무표 추가 (합성 11월·12월 화면)", () => {
     if (!r.ok) expect(r.kind).toBe("month-mismatch");
   });
 
-  it("9·10월(2장) + 11월 + 12월 판독 → 정산 3개: 7회 · 8회 · 6회", () => {
+  // 11월 정산(11.21~12.20)은 12월 20일 C가 20일 23시 이후 시작이라 다음 정산으로 넘어가 7회
+  it("9·10월(2장) + 11월 + 12월 판독 → 정산 3개: 7회 · 8회 · 7회", () => {
     const pair = analyzePair(sep, oct, SEP);
     const n = analyzeMonth(nov, NOV);
     const d = analyzeMonth(dec, DEC);
@@ -210,7 +211,7 @@ describe("다음 달 근무표 추가 (합성 11월·12월 화면)", () => {
     expect(periodView(data, { year: 2026, month: 10 })).toBeNull(); // 11월 없으면 계산하지 않음
     data = upsertMonth(data, makeMonth(NOV, n.days));
     data = upsertMonth(data, makeMonth(DEC, d.days));
-    expect([SEP, { year: 2026, month: 10 }, NOV].map((b) => periodView(data, b)!.mealAllowance)).toEqual([7, 8, 6]);
+    expect([SEP, { year: 2026, month: 10 }, NOV].map((b) => periodView(data, b)!.mealAllowance)).toEqual([7, 8, 7]);
   });
 });
 

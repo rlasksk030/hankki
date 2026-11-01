@@ -58,7 +58,15 @@ export interface Period {
   endDate: ISODate;
 }
 
-/** 정산기간: 기준월 21일 ~ 다음 달 20일 */
+/**
+ * 정산이 바뀌는 시각: 매월 20일 23시.
+ * 정산기간은 기준월 20일 23시 ~ 다음 달 20일 23시 전이다. 근무표는 날짜 단위라서
+ * 날짜로는 21일 ~ 다음 달 20일을 보여 주고, 20일 23시 이후는 다음 날(21일)로 본다.
+ */
+export const PERIOD_BOUNDARY_DAY = 20;
+export const PERIOD_BOUNDARY_HOUR = 23;
+
+/** 정산기간(날짜): 기준월 21일 ~ 다음 달 20일. 시각 경계는 위의 20일 23시 */
 export function settlementPeriod(base: YearMonth): Period {
   const next = addMonths(base, 1);
   return {
@@ -77,10 +85,21 @@ export function periodDates(base: YearMonth): ISODate[] {
   return dates;
 }
 
-/** 오늘 날짜에 맞는 기준월: 21일 이후면 이번 달, 아니면 지난달 */
+/**
+ * 앱이 쓰는 '오늘' 날짜. 20일 23시부터는 새 정산이 시작되므로 21일로 본다.
+ * (현재 정산, 오늘 표시, 간편식 수령 기록 날짜가 모두 이 날짜를 따른다)
+ */
+export function appToday(now: Date = new Date()): ISODate {
+  if (now.getDate() === PERIOD_BOUNDARY_DAY && now.getHours() >= PERIOD_BOUNDARY_HOUR) {
+    return toISODate(now.getFullYear(), now.getMonth() + 1, PERIOD_BOUNDARY_DAY + 1);
+  }
+  return dateToISO(now);
+}
+
+/** 지금 진행 중인 정산의 기준월: 20일 23시부터는 이번 달, 그 전은 지난달 */
 export function defaultBaseMonth(now: Date = new Date()): YearMonth {
   const current = { year: now.getFullYear(), month: now.getMonth() + 1 };
-  return now.getDate() >= 21 ? current : addMonths(current, -1);
+  return parseISODate(appToday(now)).day > PERIOD_BOUNDARY_DAY ? current : addMonths(current, -1);
 }
 
 export function isWithin(iso: ISODate, start: ISODate, end: ISODate): boolean {

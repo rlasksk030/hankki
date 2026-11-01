@@ -53,9 +53,10 @@ test("9월+10월 → 다음 정산은 11월 근무표 필요 → 11월·12월 �
   // 12월 추가 → 11.21~12.20
   await page.getByRole("button", { name: "다음 정산 11.21 — 12.20" }).click();
   await expect(page.getByText("12월 근무표를 추가하면")).toBeVisible();
-  await addMonth(page, 12, "synthetic-2026-12.png", "11.21 — 12.20 · 간편식 6회");
+  // 12월 20일 C는 20일 23시 이후 시작이라 다음 정산으로 넘어가 11월 정산은 7회
+  await addMonth(page, 12, "synthetic-2026-12.png", "11.21 — 12.20 · 간편식 7회");
   await expect(page.getByTestId("period")).toHaveText("11.21 — 12.20");
-  await expect(page.getByTestId("remaining")).toHaveText("6");
+  await expect(page.getByTestId("remaining")).toHaveText("7");
 
   // 이전 정산들은 그대로
   await page.getByRole("button", { name: "이전 정산 10.21 — 11.20" }).click();
@@ -176,7 +177,7 @@ test("등록된 근무표 기본 목록은 등록 개수와 관계없이 항상 
   await page.getByRole("button", { name: "다음 정산 10.21 — 11.20" }).click();
   await addMonth(page, 11, "synthetic-2026-11.png", "10.21 — 11.20 · 간편식 8회");
   await page.getByRole("button", { name: "다음 정산 11.21 — 12.20" }).click();
-  await addMonth(page, 12, "synthetic-2026-12.png", "11.21 — 12.20 · 간편식 6회");
+  await addMonth(page, 12, "synthetic-2026-12.png", "11.21 — 12.20 · 간편식 7회");
 
   // 1. 9~12월 등록 → 4행
   await page.getByRole("button", { name: "설정" }).click();
